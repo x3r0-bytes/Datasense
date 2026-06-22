@@ -1,0 +1,21 @@
+# Editor Config
+.kiro
+QA
+# Dependencies
+node_modules/
+
+# Compiled out
+out/
+
+# Packaged extensions 
+*.vsix 
+
+# SQL Configs 
+.sql-connections.json
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Misc
+2024-01-01

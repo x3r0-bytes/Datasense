@@ -1,0 +1,700 @@
+{
+  "name": "datasense",
+  "displayName": "Datasense",
+  "description": "Schema-aware IntelliSense, query execution, Object Explorer, and connection management for Microsoft SQL Server.",
+  "publisher": "Xero-Bytes",
+  "version": "0.10.1",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/x3r0-bytes/Datasense.git"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./out/src/extension.js",
+  "activationEvents": [
+    "onLanguage:sql",
+    "onCommand:sqlServer.runQuery",
+    "onCommand:sqlServer.switchConnection",
+    "onCommand:sqlServer.refreshSchema",
+    "onCommand:sqlServer.addConnection",
+    "onCommand:sqlServer.removeConnection",
+    "onCommand:sqlServer.refreshConnections",
+    "onCommand:sqlServer.selectTop100",
+    "onCommand:sqlServer.copyObjectName",
+    "onCommand:sqlServer.newQuery",
+    "onCommand:sqlServer.refreshNode",
+    "onCommand:sqlServer.switchServer",
+    "onCommand:sqlServer.switchDatabase",
+    "onCommand:sqlServer.editConnection",
+    "onCommand:sqlServer.deleteConnection",
+    "onCommand:sqlServer.duplicateConnection",
+    "onCommand:sqlServer.disconnect",
+    "onCommand:sqlServer.goToDefinition",
+    "onCommand:sqlServer.runCurrentStatement",
+    "onCommand:sqlServer.showKeyboardShortcuts",
+    "onCommand:sqlServer.cancelQuery",
+    "onCommand:sqlServer.retryConnection",
+    "onCommand:sqlServer.reenterCredentials",
+    "onCommand:sqlServer.openTablePreview",
+    "onCommand:sqlServer.toggleResultDisplayMode",
+    "onView:objectExplorer",
+    "onView:queryHistory",
+    "onView:sqlObjectSearch",
+    "onCommand:sqlServer.queryHistoryRerun",
+    "onCommand:sqlServer.queryHistoryClear",
+    "onCommand:sqlServer.queryHistorySearch",
+    "onCommand:sqlServer.queryHistoryOpen",
+    "onCommand:sqlServer.exportCsv",
+    "onCommand:sqlServer.exportJson",
+    "onCommand:sqlServer.exportExcel",
+    "onCommand:sqlServer.exportInsert",
+    "onCommand:sqlServer.exportCreateInsert",
+    "onCommand:sqlServer.copyAsText",
+    "onCommand:sqlServer.copyAsMarkdown",
+    "onCommand:sqlServer.showExecutionPlan",
+    "onCommand:sqlServer.showSchemaDiagram",
+    "onCommand:sqlServer.showTableDiagram",
+    "onCommand:sqlServer.showSchemaScopedDiagram",
+    "onCommand:sqlServer.findReferencesInWorkspace",
+    "onCommand:sqlServer.renameInWorkspace",
+    "onCommand:sqlServer.schemaDiff",
+    "onCommand:sqlServer.schemaDiffFromNode",
+    "onCommand:sqlServer.generateAlterScript",
+    "onCommand:sqlServer.objectExplorerSearch",
+    "onCommand:sqlServer.addConnectionGroup",
+    "onCommand:sqlServer.removeConnectionGroup",
+    "onCommand:sqlServer.assignToGroup"
+  ],
+  "contributes": {
+    "configuration": [
+      {
+        "title": "SQL Server",
+        "properties": {
+          "sqlServer.showConnectionCodeLens": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show active connection as a CodeLens suggestion at the top of SQL files."
+          },
+          "sqlServer.linting.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable real-time T-SQL syntax error linting."
+          },
+          "sqlServer.defaultRowLimit": {
+            "type": "integer",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "Maximum number of rows returned by Table Preview and SELECT TOP queries."
+          },
+          "sqlServer.formatting.enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Enable the SQL formatter for automatic formatting of SQL documents."
+          }
+        }
+      },
+      {
+        "title": "Editor",
+        "properties": {
+          "sqlServer.editor.showInlineRunButtons": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show per-statement inline run action buttons (CodeLens) in SQL editors."
+          },
+          "sqlServer.editor.showStatementOutline": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show background decoration highlighting the statement at the cursor position."
+          },
+          "sqlServer.editor.showBatchNavigator": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show GO batch navigation CodeLens and breadcrumb symbols in SQL files."
+          }
+        }
+      },
+      {
+        "title": "Query",
+        "properties": {
+          "sqlServer.query.timeoutSeconds": {
+            "type": "integer",
+            "default": 30,
+            "minimum": 0,
+            "maximum": 3600,
+            "description": "Query execution timeout in seconds. Set to 0 for no timeout."
+          }
+        }
+      },
+      {
+        "title": "Results",
+        "properties": {
+          "sqlServer.results.displayMode": {
+            "type": "string",
+            "enum": [
+              "single",
+              "split"
+            ],
+            "default": "single",
+            "description": "Controls how multiple result sets are displayed: 'single' shows all results in one combined pane, 'split' shows each result set in a separate tab.",
+            "enumDescriptions": [
+              "Show all result sets in one combined scrollable pane",
+              "Show each result set in its own tab"
+            ]
+          },
+          "sqlServer.results.autoOpen": {
+            "type": "boolean",
+            "default": true,
+            "description": "Automatically open the Result Panel when a query produces results."
+          }
+        }
+      },
+      {
+        "title": "Preview",
+        "properties": {
+          "sqlServer.preview.defaultMode": {
+            "type": "string",
+            "enum": [
+              "simple",
+              "query"
+            ],
+            "default": "simple",
+            "description": "Default mode for Table Preview: 'simple' shows filter controls, 'query' shows a full query editor.",
+            "enumDescriptions": [
+              "Open Table Preview in simple filter mode",
+              "Open Table Preview in full query editor mode"
+            ]
+          }
+        }
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sqlServerObjectExplorer",
+          "title": "Object Explorer",
+          "icon": "resources/database.svg"
+        }
+      ],
+      "panel": [
+        {
+          "id": "sqlServerResultsPanel",
+          "title": "Query Results",
+          "icon": "$(output)"
+        }
+      ]
+    },
+    "views": {
+      "sqlServerObjectExplorer": [
+        {
+          "id": "objectExplorer",
+          "name": "Object Explorer",
+          "when": "true"
+        },
+        {
+          "id": "sqlObjectSearch",
+          "name": "SQL Search",
+          "type": "webview"
+        },
+        {
+          "id": "queryHistory",
+          "name": "Query History",
+          "when": "true"
+        }
+      ],
+      "sqlServerResultsPanel": [
+        {
+          "id": "sqlServerResults",
+          "name": "Results",
+          "type": "webview"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "objectExplorer",
+        "contents": "No servers connected.\n[Add Connection](command:sqlServer.addConnection)"
+      },
+      {
+        "view": "queryHistory",
+        "contents": "No queries executed yet.\nRun a query to see it appear here."
+      }
+    ],
+    "languages": [
+      {
+        "id": "sql",
+        "extensions": [
+          ".sql"
+        ],
+        "aliases": [
+          "SQL",
+          "T-SQL"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sql",
+        "scopeName": "source.sql",
+        "path": "./syntaxes/tsql.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "sqlServer.runQuery",
+        "title": "SQL Server: Run Query",
+        "icon": "$(play)"
+      },
+      {
+        "command": "sqlServer.cancelQuery",
+        "title": "SQL Server: Cancel Query",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "sqlServer.runCurrentStatement",
+        "title": "SQL Server: Run Current Statement",
+        "icon": "$(play)"
+      },
+      {
+        "command": "sqlServer.showKeyboardShortcuts",
+        "title": "SQL Server: Show Keyboard Shortcuts"
+      },
+      {
+        "command": "sqlServer.switchConnection",
+        "title": "SQL Server: Switch Connection"
+      },
+      {
+        "command": "sqlServer.refreshSchema",
+        "title": "SQL Server: Refresh Schema"
+      },
+      {
+        "command": "sqlServer.addConnection",
+        "title": "SQL Server: Add Connection",
+        "icon": "$(add)"
+      },
+      {
+        "command": "sqlServer.removeConnection",
+        "title": "SQL Server: Remove Connection"
+      },
+      {
+        "command": "sqlServer.refreshConnections",
+        "title": "SQL Server: Refresh Connections",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sqlServer.selectTop100",
+        "title": "SQL Server: SELECT TOP 100"
+      },
+      {
+        "command": "sqlServer.copyObjectName",
+        "title": "SQL Server: Copy Object Name"
+      },
+      {
+        "command": "sqlServer.newQuery",
+        "title": "SQL Server: New Query"
+      },
+      {
+        "command": "sqlServer.refreshNode",
+        "title": "SQL Server: Refresh"
+      },
+      {
+        "command": "sqlServer.switchServer",
+        "title": "SQL Server: Switch Server"
+      },
+      {
+        "command": "sqlServer.switchDatabase",
+        "title": "SQL Server: Switch Database"
+      },
+      {
+        "command": "sqlServer.editConnection",
+        "title": "Edit Connection",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "sqlServer.deleteConnection",
+        "title": "Delete Connection",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sqlServer.duplicateConnection",
+        "title": "Duplicate Connection",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "sqlServer.disconnect",
+        "title": "SQL Server: Disconnect"
+      },
+      {
+        "command": "sqlServer.goToDefinition",
+        "title": "Go to Definition"
+      },
+      {
+        "command": "sqlServer.retryConnection",
+        "title": "SQL Server: Retry Connection"
+      },
+      {
+        "command": "sqlServer.reenterCredentials",
+        "title": "SQL Server: Re-enter Credentials"
+      },
+      {
+        "command": "sqlServer.openTablePreview",
+        "title": "SQL Server: Open Table Preview",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "sqlServer.toggleResultDisplayMode",
+        "title": "SQL Server: Toggle Result Display Mode",
+        "icon": "$(split-vertical)"
+      },
+      {
+        "command": "sqlServer.queryHistoryRerun",
+        "title": "Re-run Query",
+        "icon": "$(play)"
+      },
+      {
+        "command": "sqlServer.queryHistoryClear",
+        "title": "Clear History",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sqlServer.queryHistorySearch",
+        "title": "Search History",
+        "icon": "$(search)"
+      },
+      {
+        "command": "sqlServer.queryHistoryOpen",
+        "title": "Open Query"
+      },
+      {
+        "command": "sqlServer.exportCsv",
+        "title": "Export CSV",
+        "icon": "$(file)"
+      },
+      {
+        "command": "sqlServer.exportJson",
+        "title": "Export JSON",
+        "icon": "$(json)"
+      },
+      {
+        "command": "sqlServer.exportExcel",
+        "title": "Export Excel",
+        "icon": "$(table)"
+      },
+      {
+        "command": "sqlServer.exportInsert",
+        "title": "Export INSERT",
+        "icon": "$(code)"
+      },
+      {
+        "command": "sqlServer.exportCreateInsert",
+        "title": "Export CREATE + INSERT",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "sqlServer.copyAsText",
+        "title": "Copy as Text",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "sqlServer.copyAsMarkdown",
+        "title": "Copy as Markdown",
+        "icon": "$(markdown)"
+      },
+      {
+        "command": "sqlServer.showExecutionPlan",
+        "title": "SQL Server: Show Execution Plan"
+      },
+      {
+        "command": "sqlServer.showSchemaDiagram",
+        "title": "SQL Server: Schema Diagram"
+      },
+      {
+        "command": "sqlServer.showTableDiagram",
+        "title": "SQL Server: Table Diagram"
+      },
+      {
+        "command": "sqlServer.showSchemaScopedDiagram",
+        "title": "SQL Server: Schema Diagram"
+      },
+      {
+        "command": "sqlServer.findReferencesInWorkspace",
+        "title": "Find References in Workspace"
+      },
+      {
+        "command": "sqlServer.renameInWorkspace",
+        "title": "Rename in Workspace"
+      },
+      {
+        "command": "sqlServer.schemaDiff",
+        "title": "SQL Server: Schema Diff — Compare Schemas"
+      },
+      {
+        "command": "sqlServer.schemaDiffFromNode",
+        "title": "Compare Schema With..."
+      },
+      {
+        "command": "sqlServer.generateAlterScript",
+        "title": "SQL Server: Generate ALTER Script"
+      },
+      {
+        "command": "sqlServer.objectExplorerSearch",
+        "title": "SQL Server: Search Object Explorer",
+        "icon": "$(search)"
+      },
+      {
+        "command": "sqlServer.addConnectionGroup",
+        "title": "SQL Server: Add Connection Group",
+        "icon": "$(folder-library)"
+      },
+      {
+        "command": "sqlServer.removeConnectionGroup",
+        "title": "SQL Server: Remove Connection Group"
+      },
+      {
+        "command": "sqlServer.assignToGroup",
+        "title": "Assign to Group..."
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "sqlServer.runQuery",
+        "key": "ctrl+shift+e",
+        "when": "editorLangId == sql"
+      },
+      {
+        "command": "sqlServer.cancelQuery",
+        "key": "ctrl+shift+q",
+        "when": "editorLangId == sql"
+      },
+      {
+        "command": "sqlServer.runCurrentStatement",
+        "key": "ctrl+enter",
+        "when": "editorLangId == sql"
+      },
+      {
+        "command": "sqlServer.showKeyboardShortcuts",
+        "key": "ctrl+shift+/"
+      },
+      {
+        "command": "sqlServer.showExecutionPlan",
+        "key": "ctrl+alt+s",
+        "when": "editorLangId == sql"
+      }
+    ],
+    "colors": [
+      {
+        "id": "sqlServer.statementOutlineBorder",
+        "description": "Border color for the active statement outline box in SQL editors.",
+        "defaults": {
+          "dark": "#5a5a5a80",
+          "light": "#c8c8c880",
+          "highContrast": "#ffffff"
+        }
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "sqlServer.runQuery",
+          "when": "editorLangId == sql && !sqlServer.editorExecuting",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.cancelQuery",
+          "when": "editorLangId == sql && sqlServer.editorExecuting",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "sqlServer.addConnection",
+          "when": "view == objectExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.addConnectionGroup",
+          "when": "view == objectExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.refreshConnections",
+          "when": "view == objectExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.objectExplorerSearch",
+          "when": "view == objectExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.toggleResultDisplayMode",
+          "when": "view == sqlServerResults",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.exportCsv",
+          "when": "view == sqlServerResults",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.exportJson",
+          "when": "view == sqlServerResults",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.exportExcel",
+          "when": "view == sqlServerResults",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.exportInsert",
+          "when": "view == sqlServerResults",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.exportCreateInsert",
+          "when": "view == sqlServerResults",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.copyAsText",
+          "when": "view == sqlServerResults",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.copyAsMarkdown",
+          "when": "view == sqlServerResults",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.queryHistorySearch",
+          "when": "view == queryHistory",
+          "group": "navigation"
+        },
+        {
+          "command": "sqlServer.queryHistoryClear",
+          "when": "view == queryHistory",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "sqlServer.queryHistoryRerun",
+          "when": "view == queryHistory && viewItem == historyRecord",
+          "group": "inline"
+        },
+        {
+          "command": "sqlServer.openTablePreview",
+          "when": "view == objectExplorer && viewItem =~ /^(table|view)$/",
+          "group": "0_preview@1"
+        },
+        {
+          "command": "sqlServer.selectTop100",
+          "when": "view == objectExplorer && viewItem =~ /^(table|view)$/",
+          "group": "1_query@1"
+        },
+        {
+          "command": "sqlServer.copyObjectName",
+          "when": "view == objectExplorer && viewItem =~ /^(table|view|column|columnPK|columnFK|folder|externalTable|systemView|databaseOffline)$/",
+          "group": "2_copy@1"
+        },
+        {
+          "command": "sqlServer.newQuery",
+          "when": "view == objectExplorer && viewItem =~ /^(table|view|server|database)$/",
+          "group": "3_new@1"
+        },
+        {
+          "command": "sqlServer.refreshNode",
+          "when": "view == objectExplorer && viewItem =~ /^(table|view|server|database)$/",
+          "group": "4_refresh@1"
+        },
+        {
+          "command": "sqlServer.editConnection",
+          "when": "view == objectExplorer && viewItem == server",
+          "group": "connection@1"
+        },
+        {
+          "command": "sqlServer.duplicateConnection",
+          "when": "view == objectExplorer && viewItem == server",
+          "group": "connection@2"
+        },
+        {
+          "command": "sqlServer.deleteConnection",
+          "when": "view == objectExplorer && viewItem == server",
+          "group": "connection@3"
+        },
+        {
+          "command": "sqlServer.assignToGroup",
+          "when": "view == objectExplorer && viewItem == server",
+          "group": "connection@4"
+        },
+        {
+          "command": "sqlServer.removeConnectionGroup",
+          "when": "view == objectExplorer && viewItem == connectionGroup",
+          "group": "connection@1"
+        },
+        {
+          "command": "sqlServer.goToDefinition",
+          "when": "view == objectExplorer && viewItem =~ /^(view|programmabilityObject)$/",
+          "group": "0_definition@1"
+        },
+        {
+          "command": "sqlServer.showSchemaDiagram",
+          "when": "view == objectExplorer && viewItem == database",
+          "group": "0_preview@2"
+        },
+        {
+          "command": "sqlServer.showTableDiagram",
+          "when": "view == objectExplorer && viewItem == table",
+          "group": "0_preview@2"
+        },
+        {
+          "command": "sqlServer.showSchemaScopedDiagram",
+          "when": "view == objectExplorer && viewItem == table",
+          "group": "0_preview@3"
+        },
+        {
+          "command": "sqlServer.findReferencesInWorkspace",
+          "when": "view == objectExplorer && viewItem =~ /^(table|view|column|columnPK|columnFK)$/",
+          "group": "5_references@1"
+        },
+        {
+          "command": "sqlServer.schemaDiffFromNode",
+          "when": "view == objectExplorer && viewItem == table",
+          "group": "0_preview@3"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./tsconfig.json && tsc -p ./tsconfig.server.json",
+    "watch": "tsc -watch -p ./tsconfig.json",
+    "test": "vitest --run",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "fast-xml-parser": "^5.8.0",
+    "msnodesqlv8": "^5.2.0",
+    "mssql": "^12.0.0",
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12"
+  },
+  "devDependencies": {
+    "@types/mssql": "^12.0.0",
+    "@types/vscode": "^1.75.0",
+    "@vscode/test-electron": "^2.3.8",
+    "fast-check": "^3.15.0",
+    "typescript": "^5.4.0",
+    "vitest": "^3.0.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.0.0"
+  }
+}

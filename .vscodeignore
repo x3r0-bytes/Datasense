@@ -1,0 +1,9 @@
+src/**
+server/src/**
+test/**
+.kiro/**
+tsconfig*.json
+vitest.config.ts
+.gitignore
+.git/**
+**/*.map

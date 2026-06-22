@@ -1,0 +1,127 @@
+{
+  "name": "T-SQL",
+  "scopeName": "source.sql",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#go-batch-separator" },
+    { "include": "#cte-with" },
+    { "include": "#temp-tables" },
+    { "include": "#sql-variables" },
+    { "include": "#bracket-identifiers" },
+    { "include": "#builtin-functions" },
+    { "include": "#sql-server-keywords" },
+    { "include": "#dml-keywords" },
+    { "include": "#numeric-literals" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.sql",
+          "match": "--.*$"
+        },
+        {
+          "name": "comment.block.sql",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "patterns": [
+            { "include": "#comments" }
+          ]
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.sql",
+          "match": "(?i)N'[^']*(?:''[^']*)*'"
+        },
+        {
+          "name": "string.quoted.single.sql",
+          "match": "'[^']*(?:''[^']*)*'"
+        }
+      ]
+    },
+    "go-batch-separator": {
+      "patterns": [
+        {
+          "name": "keyword.control.batch.sql",
+          "match": "(?i)^\\s*GO\\s*$"
+        }
+      ]
+    },
+    "cte-with": {
+      "patterns": [
+        {
+          "match": "(?i)\\b(WITH)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s+(AS)\\s*\\(",
+          "captures": {
+            "1": { "name": "keyword.other.cte.sql" },
+            "2": { "name": "entity.name.cte.sql" },
+            "3": { "name": "keyword.other.cte.sql" }
+          }
+        }
+      ]
+    },
+    "temp-tables": {
+      "patterns": [
+        {
+          "name": "entity.name.table.temp.sql",
+          "match": "##?[a-zA-Z_][a-zA-Z0-9_]*"
+        }
+      ]
+    },
+    "sql-variables": {
+      "patterns": [
+        {
+          "name": "variable.language.sql",
+          "match": "@@[a-zA-Z_]\\w*"
+        },
+        {
+          "name": "variable.other.sql",
+          "match": "@[a-zA-Z_]\\w*"
+        }
+      ]
+    },
+    "bracket-identifiers": {
+      "patterns": [
+        {
+          "name": "entity.name.bracket.sql",
+          "match": "\\[[^\\]]*\\]"
+        }
+      ]
+    },
+    "builtin-functions": {
+      "patterns": [
+        {
+          "name": "support.function.sql",
+          "match": "(?i)\\b(ISNULL|COALESCE|CONVERT|CAST|DATEADD|DATEDIFF|STRING_AGG|ROW_NUMBER|RANK|DENSE_RANK|NTILE|LAG|LEAD|FIRST_VALUE|LAST_VALUE|COUNT|SUM|AVG|MIN|MAX|LEN|CHARINDEX|SUBSTRING|REPLACE|UPPER|LOWER|TRIM|LTRIM|RTRIM|GETDATE|GETUTCDATE|SYSDATETIME|DATEDIFF_BIG|DATEPART|DATENAME|EOMONTH|FORMAT|TRY_CONVERT|TRY_CAST|IIF|CHOOSE|STUFF|CONCAT|CONCAT_WS|JSON_VALUE|JSON_QUERY|OPENJSON|ISJSON|NEWID|SCOPE_IDENTITY|OBJECT_ID|DB_NAME|SCHEMA_NAME|USER_NAME)\\b"
+        }
+      ]
+    },
+    "sql-server-keywords": {
+      "patterns": [
+        {
+          "name": "keyword.other.sql-server.sql",
+          "match": "(?i)\\b(TOP|NOLOCK|MERGE|PIVOT|UNPIVOT|CROSS\\s+APPLY|OUTER\\s+APPLY|OUTPUT|INSERTED|DELETED|READUNCOMMITTED|READCOMMITTED|REPEATABLEREAD|SERIALIZABLE|SNAPSHOT|ROWLOCK|PAGELOCK|TABLOCK|TABLOCKX|UPDLOCK|XLOCK|HOLDLOCK|NOWAIT|IDENTITY|NEWSEQUENTIALID)\\b"
+        }
+      ]
+    },
+    "dml-keywords": {
+      "patterns": [
+        {
+          "name": "keyword.other.DML.sql",
+          "match": "(?i)\\b(SELECT|FROM|WHERE|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|CROSS|ON|AND|OR|NOT|IN|EXISTS|BETWEEN|LIKE|IS|NULL|AS|ORDER|BY|GROUP|HAVING|UNION|ALL|INTERSECT|EXCEPT|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|ALTER|DROP|TABLE|VIEW|INDEX|PROCEDURE|FUNCTION|TRIGGER|BEGIN|END|IF|ELSE|WHILE|RETURN|DECLARE|EXEC|EXECUTE|CASE|WHEN|THEN|ELSE|END|DISTINCT|ASC|DESC|OVER|PARTITION|OFFSET|FETCH|NEXT|ROWS|ONLY|WITH|TIES|PERCENT)\\b"
+        }
+      ]
+    },
+    "numeric-literals": {
+      "patterns": [
+        {
+          "name": "constant.numeric.sql",
+          "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b"
+        }
+      ]
+    }
+  }
+}
