@@ -313,6 +313,8 @@ export class SchemaDiagramPanel {
         }
       );
 
+      this.panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'resources', 'ERD.png');
+
       this.panel.onDidDispose(() => {
         this.panel = undefined;
       });
@@ -381,6 +383,7 @@ export class SchemaDiagramPanel {
             localResourceRoots: [this.extensionUri],
           }
         );
+        this.panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'resources', 'ERD.png');
         this.panel.onDidDispose(() => {
           this.panel = undefined;
         });

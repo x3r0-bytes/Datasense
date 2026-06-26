@@ -8,6 +8,7 @@
 
 import { TableReference } from './completionProvider';
 import { ISchemaCache, ColumnInfo, TableInfo, ViewInfo } from './schemaCache';
+import { IMultiDatabaseCache } from './multiDatabaseCache';
 
 // --- Interfaces ---
 
@@ -47,7 +48,8 @@ export function resolveAlias(
   alias: string,
   tableReferences: TableReference[],
   cteColumns: Map<string, ColumnInfo[]>,
-  schemaCache: ISchemaCache
+  schemaCache: ISchemaCache,
+  multiDatabaseCache?: IMultiDatabaseCache | null
 ): AliasResolution {
   const emptyResult: AliasResolution = { columns: [], found: false, isSchemaName: false };
 
@@ -64,7 +66,7 @@ export function resolveAlias(
 
   if (matchedRef) {
     // Step 1: Try resolving from schema cache first (table alias → schema cache columns)
-    const columns = lookupColumnsForReference(matchedRef, schemaCache);
+    const columns = lookupColumnsForReference(matchedRef, schemaCache, multiDatabaseCache);
     if (columns.length > 0) {
       return { columns, found: true, isSchemaName: false };
     }
@@ -195,9 +197,10 @@ function lookupCTEColumns(
 /**
  * Look up columns for a table reference in the schema cache.
  * Handles both schema-qualified and unqualified table names.
+ * For three-part names (database.schema.table), uses multiDatabaseCache.
  */
-function lookupColumnsForReference(ref: TableReference, schemaCache: ISchemaCache): ColumnInfo[] {
-  const tableOrView = findTableOrView(schemaCache, ref);
+function lookupColumnsForReference(ref: TableReference, schemaCache: ISchemaCache, multiDatabaseCache?: IMultiDatabaseCache | null): ColumnInfo[] {
+  const tableOrView = findTableOrView(schemaCache, ref, multiDatabaseCache);
   if (tableOrView) {
     return tableOrView.columns;
   }
@@ -207,11 +210,36 @@ function lookupColumnsForReference(ref: TableReference, schemaCache: ISchemaCach
 /**
  * Finds a table or view in the schema cache matching a table reference.
  * Case-insensitive matching. Prefers dbo schema when no schema is specified.
+ * For three-part names (database.schema.table), uses multiDatabaseCache.
  */
 function findTableOrView(
   schemaCache: ISchemaCache,
-  ref: TableReference
+  ref: TableReference,
+  multiDatabaseCache?: IMultiDatabaseCache | null
 ): TableInfo | ViewInfo | null {
+  // If the reference has a database qualifier, look it up in the multiDatabaseCache
+  if (ref.database && multiDatabaseCache) {
+    const targetCache = multiDatabaseCache.getCache(ref.database);
+    if (targetCache) {
+      const schemaToMatch = ref.schema || 'dbo';
+      const table = targetCache.tables.find(
+        t => t.schema.toLowerCase() === schemaToMatch.toLowerCase() &&
+             t.name.toLowerCase() === ref.name.toLowerCase()
+      );
+      if (table) return table;
+
+      const view = targetCache.views.find(
+        v => v.schema.toLowerCase() === schemaToMatch.toLowerCase() &&
+             v.name.toLowerCase() === ref.name.toLowerCase()
+      );
+      if (view) return view;
+    }
+    // If the database matches the primary cache, fall through to normal lookup
+    if (ref.database.toLowerCase() !== (multiDatabaseCache.primaryDatabase || '').toLowerCase()) {
+      return null;
+    }
+  }
+
   if (ref.schema) {
     // Match with schema prefix (case-insensitive)
     const table = schemaCache.tables.find(

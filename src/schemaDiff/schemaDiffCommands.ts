@@ -59,7 +59,8 @@ export function getLastDiffResult(): SchemaDiff | undefined {
  * Registers the schema diff commands and returns disposables.
  */
 export function registerSchemaDiffCommands(
-  connectionManager: ObjectExplorerConnectionManager
+  connectionManager: ObjectExplorerConnectionManager,
+  extensionUri: vscode.Uri
 ): vscode.Disposable[] {
   const engine = new SchemaDiffEngine();
 
@@ -78,7 +79,7 @@ export function registerSchemaDiffCommands(
     }
 
     // Execute comparison
-    await executeSchemaDiff(connectionManager, engine, source, target);
+    await executeSchemaDiff(connectionManager, engine, source, target, extensionUri);
   });
 
   // Context menu on table node: pre-selects source from the table's schema
@@ -102,7 +103,7 @@ export function registerSchemaDiffCommands(
     }
 
     // Execute comparison
-    await executeSchemaDiff(connectionManager, engine, source, target);
+    await executeSchemaDiff(connectionManager, engine, source, target, extensionUri);
   });
 
   return [schemaDiffCmd, schemaDiffFromNodeCmd];
@@ -252,7 +253,8 @@ async function executeSchemaDiff(
   connectionManager: ObjectExplorerConnectionManager,
   engine: SchemaDiffEngine,
   source: SchemaDiffSelection,
-  target: SchemaDiffSelection
+  target: SchemaDiffSelection,
+  extensionUri: vscode.Uri
 ): Promise<void> {
   // Requirement 5.9: Check if same source and target (connection + database + schema)
   if (
@@ -335,7 +337,7 @@ async function executeSchemaDiff(
 
       // Show results in DiffPanel webview (Requirement 6.2)
       if (!diffPanel) {
-        diffPanel = new DiffPanel();
+        diffPanel = new DiffPanel(extensionUri);
       }
       diffPanel.show(diff);
     }

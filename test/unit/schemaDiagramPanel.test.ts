@@ -22,6 +22,7 @@ vi.mock('vscode', () => ({
   },
   Uri: {
     parse: vi.fn((s: string) => ({ toString: () => s })),
+    joinPath: vi.fn((base: any, ...pathSegments: string[]) => ({ toString: () => base.toString() + '/' + pathSegments.join('/') })),
   },
 }));
 

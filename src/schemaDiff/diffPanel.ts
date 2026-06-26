@@ -27,6 +27,8 @@ export class DiffPanel {
   private panel: vscode.WebviewPanel | undefined;
   private currentDiff: SchemaDiff | undefined;
 
+  constructor(private readonly extensionUri: vscode.Uri) {}
+
   /**
    * Create or reveal the diff panel webview.
    * If the panel already exists, it is revealed and content is updated.
@@ -48,6 +50,8 @@ export class DiffPanel {
       vscode.ViewColumn.One,
       { enableScripts: true }
     );
+
+    this.panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'resources', 'SchemaDiff.png');
 
     this.panel.webview.html = this.getHtmlContent(diff, this.panel.webview);
 

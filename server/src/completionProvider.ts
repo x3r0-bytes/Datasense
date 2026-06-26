@@ -431,6 +431,7 @@ export interface JoinContextInfo {
  * A table reference extracted from a FROM or JOIN clause.
  */
 export interface TableReference {
+  database?: string;
   schema?: string;
   name: string;
   alias?: string;
@@ -1102,13 +1103,14 @@ function parseTableList(text: string): TableReference[] {
 
 /**
  * Parses a single table reference like "schema.table AS alias" or "table alias".
+ * Handles three-part names: "database.schema.table AS alias".
  */
 function parseOneTableReference(text: string): TableReference | null {
-  // Match: optional_schema.table_name optional_AS optional_alias
+  // Match: optional_database.optional_schema.table_name optional_AS optional_alias
   // Identifiers can be: [bracketed], or simple alphanumeric/underscore/#
   const identPattern = '(?:\\[[^\\]]*\\]|[#]?[a-zA-Z_][a-zA-Z0-9_]*)';
   const tableRefRegex = new RegExp(
-    `^\\s*(${identPattern})(?:\\.(${identPattern}))?` +  // schema.name or just name
+    `^\\s*(${identPattern})(?:\\.(${identPattern}))?(?:\\.(${identPattern}))?` +  // db.schema.name or schema.name or just name
     `(?:\\s+(?:as\\s+)?(${identPattern}))?` +            // optional alias
     `\\s*`,
     'i'
@@ -1119,17 +1121,26 @@ function parseOneTableReference(text: string): TableReference | null {
 
   const firstPart = stripBrackets(match[1]);
   const secondPart = match[2] ? stripBrackets(match[2]) : undefined;
-  const aliasPart = match[3] ? stripBrackets(match[3]) : undefined;
+  const thirdPart = match[3] ? stripBrackets(match[3]) : undefined;
+  const aliasPart = match[4] ? stripBrackets(match[4]) : undefined;
 
-  if (secondPart) {
-    // schema.name pattern
+  if (thirdPart) {
+    // Three-part: database.schema.table
+    return {
+      database: firstPart,
+      schema: secondPart,
+      name: thirdPart,
+      alias: aliasPart,
+    };
+  } else if (secondPart) {
+    // Two-part: schema.table
     return {
       schema: firstPart,
       name: secondPart,
       alias: aliasPart,
     };
   } else {
-    // Just a table name (no schema)
+    // Single-part: just table name (no schema)
     return {
       name: firstPart,
       alias: aliasPart,
@@ -1714,7 +1725,7 @@ export function getCompletions(
     const columnNameCount = new Map<string, number>();
 
     for (const ref of tableRefs) {
-      const matchingTable = findTableOrView(schemaCache, ref);
+      const matchingTable = findTableOrView(schemaCache, ref, multiDatabaseCache);
       if (!matchingTable) continue;
 
       for (const col of matchingTable.columns) {
@@ -1827,7 +1838,8 @@ export function getCompletions(
           cteChain.inCTEChain ? extractInnermostSelectScope(documentText, offset) : scopedText,
           schemaCache,
           cteChain.availableNames,
-          cteSchemaMap
+          cteSchemaMap,
+          multiDatabaseCache
         );
         if (aliasDotResult !== null) {
           // aliasDotResult is either columns from the matched alias or empty (unknown alias)
@@ -1840,9 +1852,9 @@ export function getCompletions(
       // which removes the very FROM clause we need when the cursor is inside a CTE body.
       if (cteChain.inCTEChain) {
         const scopeText = extractInnermostSelectScope(documentText, offset);
-        schemaObjectCompletions = getColumnCompletions(scopeText, schemaCache, textBeforeCursor, cteChain.availableNames, context);
+        schemaObjectCompletions = getColumnCompletions(scopeText, schemaCache, textBeforeCursor, cteChain.availableNames, context, multiDatabaseCache);
       } else {
-        schemaObjectCompletions = getColumnCompletions(scopedText, schemaCache, textBeforeCursor, cteChain.availableNames, context);
+        schemaObjectCompletions = getColumnCompletions(scopedText, schemaCache, textBeforeCursor, cteChain.availableNames, context, multiDatabaseCache);
       }
 
       // In SELECT context, merge aggregate function snippet completions
@@ -1856,7 +1868,7 @@ export function getCompletions(
       // Operators are NOT suggested in SELECT, ORDER_BY, or GROUP_BY contexts.
       if (context === 'WHERE') {
         const scopeText = cteChain.inCTEChain ? extractInnermostSelectScope(documentText, offset) : scopedText;
-        const operatorItems = getOperatorCompletions(textBeforeCursor, scopeText, schemaCache);
+        const operatorItems = getOperatorCompletions(textBeforeCursor, scopeText, schemaCache, multiDatabaseCache);
         if (operatorItems.length > 0) {
           schemaObjectCompletions = [...schemaObjectCompletions, ...operatorItems];
         }
@@ -1873,7 +1885,8 @@ export function getCompletions(
         cteChain.inCTEChain ? extractInnermostSelectScope(documentText, offset) : scopedText,
         schemaCache,
         cteChain.availableNames,
-        cteSchemaMap
+        cteSchemaMap,
+        multiDatabaseCache
       );
       if (havingAliasDotResult !== null) {
         schemaObjectCompletions = havingAliasDotResult;
@@ -1903,9 +1916,9 @@ export function getCompletions(
       } else {
         // No GROUP BY found — fall back to all column completions
         if (cteChain.inCTEChain) {
-          schemaObjectCompletions = getColumnCompletions(havingScopeText, schemaCache, textBeforeCursor, cteChain.availableNames, context);
+          schemaObjectCompletions = getColumnCompletions(havingScopeText, schemaCache, textBeforeCursor, cteChain.availableNames, context, multiDatabaseCache);
         } else {
-          schemaObjectCompletions = getColumnCompletions(scopedText, schemaCache, textBeforeCursor, cteChain.availableNames, context);
+          schemaObjectCompletions = getColumnCompletions(scopedText, schemaCache, textBeforeCursor, cteChain.availableNames, context, multiDatabaseCache);
         }
       }
 
@@ -2649,7 +2662,8 @@ function getColumnCompletions(
   schemaCache: ISchemaCache,
   textBeforeCursor: string,
   cteNames: string[] = [],
-  context: CompletionContext = 'NONE'
+  context: CompletionContext = 'NONE',
+  multiDatabaseCache?: IMultiDatabaseCache | null
 ): CompletionItem[] {
   const prefix = getCurrentPrefix(textBeforeCursor);
   const tableRefs = extractTableReferences(batchText);
@@ -2665,7 +2679,7 @@ function getColumnCompletions(
       continue;
     }
 
-    const matchingTable = findTableOrView(schemaCache, ref);
+    const matchingTable = findTableOrView(schemaCache, ref, multiDatabaseCache);
     if (!matchingTable) continue;
 
     for (const col of matchingTable.columns) {
@@ -2729,7 +2743,8 @@ export function handleAliasDotPrefix(
   batchText: string,
   schemaCache: ISchemaCache,
   cteNames: string[] = [],
-  cteSchemaMap: Map<string, ColumnInfo[]> = new Map()
+  cteSchemaMap: Map<string, ColumnInfo[]> = new Map(),
+  multiDatabaseCache?: IMultiDatabaseCache | null
 ): CompletionItem[] | null {
   // Extract the prefix at the cursor (includes dots for schema.name patterns)
   const prefix = getCurrentPrefix(textBeforeCursor);
@@ -2747,7 +2762,7 @@ export function handleAliasDotPrefix(
   const tableRefs = extractTableReferences(batchText);
 
   // Use resolveAlias() for unified resolution (table aliases + CTE aliases/names)
-  const resolution = resolveAlias(typedAlias, tableRefs, cteSchemaMap, schemaCache);
+  const resolution = resolveAlias(typedAlias, tableRefs, cteSchemaMap, schemaCache, multiDatabaseCache);
 
   // If the prefix is a schema name, let normal completion handle it
   if (resolution.isSchemaName) {
@@ -2806,7 +2821,8 @@ export function handleAliasDotPrefix(
 export function detectColumnBeforeCursor(
   textBeforeCursor: string,
   batchText: string,
-  schemaCache: ISchemaCache
+  schemaCache: ISchemaCache,
+  multiDatabaseCache?: IMultiDatabaseCache | null
 ): ColumnInfo | null {
   // Strip literals and comments to avoid matching identifiers inside strings/comments
   const cleaned = stripLiteralsAndComments(textBeforeCursor);
@@ -2828,7 +2844,7 @@ export function detectColumnBeforeCursor(
       r => r.alias?.toLowerCase() === alias.toLowerCase()
     );
     if (!ref) return null;
-    const table = findTableOrView(schemaCache, ref);
+    const table = findTableOrView(schemaCache, ref, multiDatabaseCache);
     if (!table) return null;
     return table.columns.find(
       c => c.name.toLowerCase() === colName.toLowerCase()
@@ -2837,7 +2853,7 @@ export function detectColumnBeforeCursor(
 
   // Handle bare column name — search all referenced tables
   for (const ref of tableRefs) {
-    const table = findTableOrView(schemaCache, ref);
+    const table = findTableOrView(schemaCache, ref, multiDatabaseCache);
     if (!table) continue;
     const col = table.columns.find(
       c => c.name.toLowerCase() === identifier.toLowerCase()
@@ -2880,9 +2896,10 @@ export const DATETIME_TYPES = new Set([
 export function getOperatorCompletions(
   textBeforeCursor: string,
   batchText: string,
-  schemaCache: ISchemaCache
+  schemaCache: ISchemaCache,
+  multiDatabaseCache?: IMultiDatabaseCache | null
 ): CompletionItem[] {
-  const col = detectColumnBeforeCursor(textBeforeCursor, batchText, schemaCache);
+  const col = detectColumnBeforeCursor(textBeforeCursor, batchText, schemaCache, multiDatabaseCache);
   if (!col) return [];
 
   const operators = ['=', '<>', '<', '>', '>=', '<=', 'LIKE', 'IN', 'BETWEEN', 'IS NULL', 'IS NOT NULL'];
@@ -3284,8 +3301,32 @@ function extractGroupByColumns(statementText: string): string[] {
  */
 function findTableOrView(
   schemaCache: ISchemaCache,
-  ref: TableReference
+  ref: TableReference,
+  multiDatabaseCache?: IMultiDatabaseCache | null
 ): TableInfo | ViewInfo | null {
+  // If the reference has a database qualifier, look it up in the multiDatabaseCache
+  if (ref.database && multiDatabaseCache) {
+    const targetCache = multiDatabaseCache.getCache(ref.database);
+    if (targetCache) {
+      const schemaToMatch = ref.schema || 'dbo';
+      const table = targetCache.tables.find(
+        t => t.schema.toLowerCase() === schemaToMatch.toLowerCase() &&
+             t.name.toLowerCase() === ref.name.toLowerCase()
+      );
+      if (table) return table;
+
+      const view = targetCache.views.find(
+        v => v.schema.toLowerCase() === schemaToMatch.toLowerCase() &&
+             v.name.toLowerCase() === ref.name.toLowerCase()
+      );
+      if (view) return view;
+    }
+    // If the database matches the primary cache, fall through to normal lookup
+    if (ref.database.toLowerCase() !== (multiDatabaseCache.primaryDatabase || '').toLowerCase()) {
+      return null;
+    }
+  }
+
   // Try to match with schema prefix
   if (ref.schema) {
     const table = schemaCache.tables.find(

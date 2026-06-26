@@ -98,6 +98,8 @@ export class TablePreviewManager implements ITablePreviewManager {
       }
     );
 
+    panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'resources', 'TablePreview.png');
+
     const tabState: TablePreviewTabState = {
       identifier,
       panel,
@@ -1243,6 +1245,118 @@ export class TablePreviewManager implements ITablePreviewManager {
 
       // Filter keydown — integrates autocomplete navigation with existing Enter behavior
       filterInput.addEventListener('keydown', function(e) {
+        // Ctrl+C: copy selected text from filter input
+        if ((e.key === 'c' || e.key === 'C') && (e.ctrlKey || e.metaKey) && !e.altKey) {
+          var selStart = filterInput.selectionStart;
+          var selEnd = filterInput.selectionEnd;
+          if (selStart !== selEnd) {
+            var selectedText = filterInput.value.substring(selStart, selEnd);
+            navigator.clipboard.writeText(selectedText);
+            e.preventDefault();
+          }
+          return;
+        }
+
+        // Ctrl+V: paste from clipboard into filter input
+        if ((e.key === 'v' || e.key === 'V') && (e.ctrlKey || e.metaKey) && !e.altKey) {
+          e.preventDefault();
+          navigator.clipboard.readText().then(function(clipText) {
+            clipText = clipText.replace(/\\r?\\n/g, ' ');
+            var selStart = filterInput.selectionStart;
+            var selEnd = filterInput.selectionEnd;
+            var before = filterInput.value.substring(0, selStart);
+            var after = filterInput.value.substring(selEnd);
+            filterInput.value = before + clipText + after;
+            var newCursorPos = selStart + clipText.length;
+            filterInput.selectionStart = filterInput.selectionEnd = newCursorPos;
+            filterHighlight.innerHTML = highlightSql(filterInput.value);
+            handleAutocompleteInput();
+          });
+          return;
+        }
+
+        // Ctrl+X: cut selected text from filter input
+        if ((e.key === 'x' || e.key === 'X') && (e.ctrlKey || e.metaKey) && !e.altKey) {
+          var selStart = filterInput.selectionStart;
+          var selEnd = filterInput.selectionEnd;
+          if (selStart !== selEnd) {
+            var selectedText = filterInput.value.substring(selStart, selEnd);
+            navigator.clipboard.writeText(selectedText);
+            var before = filterInput.value.substring(0, selStart);
+            var after = filterInput.value.substring(selEnd);
+            filterInput.value = before + after;
+            filterInput.selectionStart = filterInput.selectionEnd = selStart;
+            filterHighlight.innerHTML = highlightSql(filterInput.value);
+            handleAutocompleteInput();
+            e.preventDefault();
+          }
+          return;
+        }
+
+        // Ctrl+A: select all text in filter input
+        if ((e.key === 'a' || e.key === 'A') && (e.ctrlKey || e.metaKey) && !e.altKey) {
+          e.preventDefault();
+          filterInput.selectionStart = 0;
+          filterInput.selectionEnd = filterInput.value.length;
+          return;
+        }
+
+        // Auto-pair single and double quotes
+        if (e.key === "'" || e.key === '"') {
+          var selStart = filterInput.selectionStart;
+          var selEnd = filterInput.selectionEnd;
+          var text = filterInput.value;
+          var quote = e.key;
+
+          // If text is selected, wrap selection in quotes
+          if (selStart !== selEnd) {
+            e.preventDefault();
+            var selected = text.substring(selStart, selEnd);
+            var before = text.substring(0, selStart);
+            var after = text.substring(selEnd);
+            filterInput.value = before + quote + selected + quote + after;
+            filterInput.selectionStart = selStart + 1;
+            filterInput.selectionEnd = selEnd + 1;
+            filterHighlight.innerHTML = highlightSql(filterInput.value);
+            return;
+          }
+
+          // If next character is the same quote, skip over it instead of inserting
+          if (selStart < text.length && text[selStart] === quote) {
+            e.preventDefault();
+            filterInput.selectionStart = filterInput.selectionEnd = selStart + 1;
+            return;
+          }
+
+          // Insert paired quotes and position cursor between them
+          e.preventDefault();
+          var before = text.substring(0, selStart);
+          var after = text.substring(selStart);
+          filterInput.value = before + quote + quote + after;
+          filterInput.selectionStart = filterInput.selectionEnd = selStart + 1;
+          filterHighlight.innerHTML = highlightSql(filterInput.value);
+          return;
+        }
+
+        // Backspace: remove paired quote if cursor is between matching quotes
+        if (e.key === 'Backspace') {
+          var selStart = filterInput.selectionStart;
+          var selEnd = filterInput.selectionEnd;
+          var text = filterInput.value;
+          if (selStart === selEnd && selStart > 0 && selStart < text.length) {
+            var charBefore = text[selStart - 1];
+            var charAfter = text[selStart];
+            if ((charBefore === "'" && charAfter === "'") || (charBefore === '"' && charAfter === '"')) {
+              e.preventDefault();
+              filterInput.value = text.substring(0, selStart - 1) + text.substring(selStart + 1);
+              filterInput.selectionStart = filterInput.selectionEnd = selStart - 1;
+              filterHighlight.innerHTML = highlightSql(filterInput.value);
+              handleAutocompleteInput();
+              return;
+            }
+          }
+        }
+
         // Ctrl+Space: show all suggestions for current context
         if (e.key === ' ' && e.ctrlKey) {
           e.preventDefault();
@@ -1337,12 +1451,20 @@ export class TablePreviewManager implements ITablePreviewManager {
 
       // --- End Autocomplete Controller ---
 
-      // Filter paste event — strip formatting, replace newlines
+      // Filter paste event — fallback for non-keyboard paste (right-click, etc.)
       filterInput.addEventListener('paste', function(e) {
         e.preventDefault();
         var text = (e.clipboardData || window.clipboardData).getData('text/plain');
         text = text.replace(/\\r?\\n/g, ' ');
-        document.execCommand('insertText', false, text);
+        var selStart = filterInput.selectionStart;
+        var selEnd = filterInput.selectionEnd;
+        var before = filterInput.value.substring(0, selStart);
+        var after = filterInput.value.substring(selEnd);
+        filterInput.value = before + text + after;
+        var newCursorPos = selStart + text.length;
+        filterInput.selectionStart = filterInput.selectionEnd = newCursorPos;
+        filterHighlight.innerHTML = highlightSql(filterInput.value);
+        handleAutocompleteInput();
       });
 
       // Apply filter on button click

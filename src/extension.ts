@@ -1247,7 +1247,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   // --- Schema Diff Commands (Requirements 5.1, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9) ---
-  const schemaDiffDisposables = registerSchemaDiffCommands(objectExplorerConnectionManager!);
+  const schemaDiffDisposables = registerSchemaDiffCommands(objectExplorerConnectionManager!, context.extensionUri);
 
   // --- Generate ALTER Script Command (Requirements 7.1, 7.8, 7.13) ---
   const generateAlterScriptCmd = vscode.commands.registerCommand(
