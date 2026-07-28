@@ -76,6 +76,14 @@ function isIdentifierChar(ch: string): boolean {
 }
 
 /**
+ * Returns true if the character can appear in a bracketed/quoted identifier context
+ * (identifier chars, brackets, dots, double-quotes, and characters inside brackets).
+ */
+function isBracketedIdentifierChar(ch: string): boolean {
+  return /[a-zA-Z0-9_#@.\[\]"]/.test(ch);
+}
+
+/**
  * Returns true if the given name should be excluded from Go to Definition lookups.
  * This includes T-SQL data types, keywords, variables (@name), and temp tables (#name).
  */
@@ -95,6 +103,7 @@ export function isExcludedFromDefinition(name: string): boolean {
  * 
  * - For schema-qualified names (exactly one dot): splits into {schema, name}
  * - For unqualified names (no dot): defaults to {schema: 'dbo', name: identifier}
+ * - Handles bracketed identifiers: [schema].[name]
  * - Handles special characters: # (temp tables), @ (variables)
  * 
  * Returns null if the identifier is not a valid T-SQL identifier.
@@ -108,34 +117,100 @@ export function resolveObjectNameFromString(
 
   const trimmed = identifier.trim();
 
-  // Check if it contains exactly one dot (schema-qualified)
-  const dotIndex = trimmed.indexOf('.');
-  if (dotIndex > 0 && dotIndex < trimmed.length - 1) {
-    // Ensure there's no second dot (we only handle schema.name, not db.schema.name)
-    const secondDotIndex = trimmed.indexOf('.', dotIndex + 1);
-    if (secondDotIndex === -1) {
-      const schema = trimmed.substring(0, dotIndex);
-      const name = trimmed.substring(dotIndex + 1);
+  // Strip brackets/double-quotes from individual parts
+  // Split on dots that are outside brackets
+  const parts = splitDottedIdentifier(trimmed);
+  
+  if (parts.length === 2) {
+    const schema = stripBrackets(parts[0]);
+    const name = stripBrackets(parts[1]);
 
-      // Validate both parts are valid T-SQL identifiers
-      const identifierPattern = /^[a-zA-Z_#@][a-zA-Z0-9_#@]*$/;
-      if (identifierPattern.test(schema) && identifierPattern.test(name)) {
-        return { schema, name };
-      }
+    // Validate both parts are valid T-SQL identifiers (after stripping delimiters)
+    const identifierPattern = /^[a-zA-Z_#@][a-zA-Z0-9_#@]*$/;
+    if (identifierPattern.test(schema) && identifierPattern.test(name)) {
+      return { schema, name };
+    }
+    // Allow bracketed identifiers that may contain spaces or special chars
+    if (schema.length > 0 && name.length > 0) {
+      return { schema, name };
     }
   }
 
-  // Unqualified name — default to dbo schema
-  if (/^[a-zA-Z_#@][a-zA-Z0-9_#@]*$/.test(trimmed)) {
-    return { schema: 'dbo', name: trimmed };
+  if (parts.length === 1) {
+    const name = stripBrackets(parts[0]);
+    // Unqualified name — default to dbo schema
+    if (/^[a-zA-Z_#@][a-zA-Z0-9_#@]*$/.test(name)) {
+      return { schema: 'dbo', name };
+    }
+    // Allow bracketed identifiers with special chars
+    if (name.length > 0 && (parts[0].startsWith('[') || parts[0].startsWith('"'))) {
+      return { schema: 'dbo', name };
+    }
+  }
+
+  // Three-part name: database.schema.name — use schema and name
+  if (parts.length === 3) {
+    const schema = stripBrackets(parts[1]);
+    const name = stripBrackets(parts[2]);
+    if (schema.length > 0 && name.length > 0) {
+      return { schema, name };
+    }
   }
 
   return null;
 }
 
 /**
+ * Split a dotted identifier into parts, respecting bracket/quote delimiters.
+ * E.g., "[Schema Name].[Object Name]" → ["[Schema Name]", "[Object Name]"]
+ */
+function splitDottedIdentifier(identifier: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let inBracket = false;
+  let inDoubleQuote = false;
+
+  for (let i = 0; i < identifier.length; i++) {
+    const ch = identifier[i];
+    if (ch === '[' && !inDoubleQuote) {
+      inBracket = true;
+      current += ch;
+    } else if (ch === ']' && inBracket) {
+      inBracket = false;
+      current += ch;
+    } else if (ch === '"' && !inBracket) {
+      inDoubleQuote = !inDoubleQuote;
+      current += ch;
+    } else if (ch === '.' && !inBracket && !inDoubleQuote) {
+      parts.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.length > 0) {
+    parts.push(current);
+  }
+  return parts;
+}
+
+/**
+ * Strip bracket or double-quote delimiters from a single identifier part.
+ */
+function stripBrackets(part: string): string {
+  if (part.startsWith('[') && part.endsWith(']')) {
+    return part.slice(1, -1);
+  }
+  if (part.startsWith('"') && part.endsWith('"')) {
+    return part.slice(1, -1);
+  }
+  return part;
+}
+
+/**
  * Resolve the object name at the cursor position in a document.
- * Handles schema-qualified (dbo.MyProc) and unqualified (MyProc) names.
+ * Handles schema-qualified (dbo.MyProc), unqualified (MyProc), and
+ * bracketed ([schema].[object]) names.
  * Defaults unqualified names to dbo schema.
  *
  * Returns null if the cursor is not on a valid identifier.
@@ -151,28 +226,30 @@ export function resolveObjectName(
     return null;
   }
 
-  // Check if cursor is on an identifier char or a dot (for schema.name)
-  if (!isIdentifierChar(text[offset]) && text[offset] !== '.') {
+  // Check if cursor is on an identifier char, a dot (for schema.name), or a bracket
+  if (!isIdentifierChar(text[offset]) && text[offset] !== '.' && text[offset] !== '[' && text[offset] !== ']' && text[offset] !== '"') {
     return null;
   }
 
-  // Expand left from offset to find the start of the word (including dot for schema qualification)
+  // Expand left from offset to find the start of the word (including dot and brackets for schema qualification)
   let start = offset;
-  while (start > 0 && (isIdentifierChar(text[start - 1]) || text[start - 1] === '.')) {
-    start--;
+  while (start > 0) {
+    const ch = text[start - 1];
+    if (isIdentifierChar(ch) || ch === '.' || ch === '[' || ch === ']' || ch === '"') {
+      start--;
+    } else {
+      break;
+    }
   }
 
   // Expand right from offset to find the end of the word
   let end = offset;
-  while (end < text.length && isIdentifierChar(text[end])) {
-    end++;
-  }
-
-  // If we stopped on a dot going right, also include the part after the dot
-  if (end < text.length && text[end] === '.') {
-    end++; // skip the dot
-    while (end < text.length && isIdentifierChar(text[end])) {
+  while (end < text.length) {
+    const ch = text[end];
+    if (isIdentifierChar(ch) || ch === '.' || ch === '[' || ch === ']' || ch === '"') {
       end++;
+    } else {
+      break;
     }
   }
 

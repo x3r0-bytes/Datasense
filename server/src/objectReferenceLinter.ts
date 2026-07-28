@@ -298,6 +298,7 @@ function parseFromJoinClauses(
   // Pattern to match FROM/JOIN clauses followed by a table reference
   // Handles: FROM [schema.]table [AS] [alias], JOIN [schema.]table [AS] [alias]
   // Also handles subqueries as derived tables: FROM (...) [AS] alias
+  // Also handles comma-separated tables: FROM TableA a, TableB b
   const fromJoinPattern = /\b(?:FROM|JOIN|INNER\s+JOIN|LEFT\s+(?:OUTER\s+)?JOIN|RIGHT\s+(?:OUTER\s+)?JOIN|FULL\s+(?:OUTER\s+)?JOIN|CROSS\s+JOIN|CROSS\s+APPLY|OUTER\s+APPLY)\s+/gi;
 
   let match: RegExpExecArray | null;
@@ -482,6 +483,93 @@ function parseFromJoinClauses(
     }
   }
 
+  // Handle comma-separated tables in FROM clauses.
+  // After the first table in FROM, additional tables are separated by commas.
+  // Pattern: , [schema.]table [AS] alias (at paren depth 0, between FROM and the next major clause)
+  const commaTablePattern = /,\s*([\w\[\]"]+)(?:\.([\w\[\]"]+)(?:\.([\w\[\]"]+))?)?\s*/g;
+  // Find each FROM clause and scan for comma-separated tables within it
+  const fromOnlyPattern = /\bFROM\s+/gi;
+  let fromMatch: RegExpExecArray | null;
+  while ((fromMatch = fromOnlyPattern.exec(stripped)) !== null) {
+    if (getParenDepthAt(stripped, fromMatch.index) !== 0) continue;
+    // Find the end of the FROM clause (next major keyword at depth 0)
+    const fromClauseEnd = stripped.substring(fromMatch.index + fromMatch[0].length);
+    const endMatch = fromClauseEnd.match(/\b(?:WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|INNER\s+JOIN|LEFT\s+(?:OUTER\s+)?JOIN|RIGHT\s+(?:OUTER\s+)?JOIN|FULL\s+(?:OUTER\s+)?JOIN|CROSS\s+JOIN|CROSS\s+APPLY|OUTER\s+APPLY|JOIN|UNION|EXCEPT|INTERSECT|SET|;)\b/i);
+    const fromClauseText = endMatch
+      ? fromClauseEnd.substring(0, endMatch.index)
+      : fromClauseEnd;
+
+    // Skip the first table reference (already handled by the main loop above)
+    // Look for comma-separated additional table references
+    commaTablePattern.lastIndex = 0;
+    let commaMatch: RegExpExecArray | null;
+    while ((commaMatch = commaTablePattern.exec(fromClauseText)) !== null) {
+      const cPart1 = normalizeId(commaMatch[1]);
+      const cPart2 = commaMatch[2] ? normalizeId(commaMatch[2]) : null;
+      const cPart3 = commaMatch[3] ? normalizeId(commaMatch[3]) : null;
+
+      if (SQL_RESERVED_WORDS.has(cPart1)) continue;
+      if (cteNames.has(cPart1)) continue;
+      if (cPart1.startsWith('#')) { tempTables.add(cPart1); continue; }
+
+      // Determine schema and table name
+      let ctSchema: string | null = null;
+      let ctTableName: string;
+      if (cPart3 !== null && cPart2 !== null) {
+        // Three-part: database.schema.table
+        ctSchema = cPart2;
+        ctTableName = cPart3;
+      } else if (cPart2 !== null) {
+        // Two-part: schema.table
+        ctSchema = cPart1;
+        ctTableName = cPart2;
+      } else {
+        // One-part: table
+        ctTableName = cPart1;
+        ctSchema = resolveUnqualifiedName(cPart1, schemaCache);
+      }
+
+      if (ctSchema === null) continue; // not found, skip silently for comma tables
+
+      // Parse alias: text after the full comma table reference
+      const afterCommaRef = fromClauseText.substring(commaMatch.index + commaMatch[0].length);
+      const aliasAfterComma = afterCommaRef.match(/^(?:AS\s+)?([\w\[\]"]+)/i);
+      const ctAlias = aliasAfterComma && !SQL_RESERVED_WORDS.has(normalizeId(aliasAfterComma[1]))
+        ? normalizeId(aliasAfterComma[1])
+        : ctTableName;
+
+      const ctKey = `${ctSchema}.${ctTableName}`;
+      if (schemaObjectSet.has(ctKey)) {
+        tables.push({ alias: ctAlias, schema: ctSchema, tableName: ctTableName });
+      } else {
+        derivedAliases.add(ctAlias);
+      }
+    }
+  }
+
+  // Also handle UPDATE/DELETE target aliases (e.g., UPDATE a SET ... FROM Table a)
+  // These aliases reference a table defined later in the FROM clause.
+  // Since we already parsed FROM tables above, just register any UPDATE/DELETE targets
+  // as derived aliases to prevent false positives during column validation.
+  const updateTargetPattern = /\bUPDATE\s+([\w\[\]"]+)\s+SET\b/gi;
+  let utMatch: RegExpExecArray | null;
+  while ((utMatch = updateTargetPattern.exec(stripped)) !== null) {
+    if (getParenDepthAt(stripped, utMatch.index) !== 0) continue;
+    const target = normalizeId(utMatch[1]);
+    if (!SQL_RESERVED_WORDS.has(target)) {
+      derivedAliases.add(target);
+    }
+  }
+  const deleteTargetPattern = /\bDELETE\s+([\w\[\]"]+)\s+(?:FROM|WHERE|OUTPUT)\b/gi;
+  let dtMatch: RegExpExecArray | null;
+  while ((dtMatch = deleteTargetPattern.exec(stripped)) !== null) {
+    if (getParenDepthAt(stripped, dtMatch.index) !== 0) continue;
+    const target = normalizeId(dtMatch[1]);
+    if (!SQL_RESERVED_WORDS.has(target) && target !== 'top') {
+      derivedAliases.add(target);
+    }
+  }
+
   return { tables, derivedAliases, tempTables };
 }
 
@@ -502,7 +590,11 @@ function parseAndValidateColumns(
 
   // Build a map of alias -> column set for fast lookup
   const aliasToColumns = new Map<string, string[]>();
+  // Also track all known aliases (even ones without column data) to avoid false positives
+  const knownAliases = new Set<string>();
   for (const ta of scope.tables) {
+    knownAliases.add(ta.alias);
+    knownAliases.add(ta.tableName);
     const cols = getColumnsForTable(ta.schema, ta.tableName, schemaCache);
     if (cols !== null) {
       aliasToColumns.set(ta.alias, cols);
@@ -569,6 +661,7 @@ function parseAndValidateColumns(
         scope,
         aliasToColumns,
         allValidColumns,
+        knownAliases,
         schemaCache,
         diagnostics,
         originalText,
@@ -588,6 +681,7 @@ function validateColumnRefsInClause(
   scope: QueryScope,
   aliasToColumns: Map<string, string[]>,
   allValidColumns: Set<string>,
+  knownAliases: Set<string>,
   schemaCache: ISchemaCache,
   diagnostics: Diagnostic[],
   originalText: string,
@@ -655,6 +749,9 @@ function validateColumnRefsInClause(
       // Check if it's a column of a known table (the alias might be the schema name in a two-part table name)
       const isKnownAlias = aliasToColumns.has(aliasLower);
       if (!isKnownAlias) {
+        // Check if it's a known alias without column data (table exists but columns not cached)
+        if (knownAliases.has(aliasLower)) continue;
+
         // Check if it's any known schema name from the cache (then it's a schema.table.col pattern
         // which we don't validate at the column level)
         const isSchemaName = schemaCache.tables.some(t => t.schema.toLowerCase() === aliasLower) ||
@@ -695,6 +792,7 @@ function validateColumnRefsInClause(
 
       // Skip if it's a known alias name (table or alias reference itself)
       if (aliasToColumns.has(part1)) continue;
+      if (knownAliases.has(part1)) continue;
 
       // Skip if it's in scope as CTE, temp, derived
       if (scope.cteNames.has(part1) ||

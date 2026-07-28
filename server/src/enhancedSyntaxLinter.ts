@@ -529,7 +529,21 @@ function normalizeId(id: string): string {
 // ─── Linting Sub-Functions ────────────────────────────────────────────────────
 
 /**
+ * Get parenthesis nesting depth at a given offset in text.
+ */
+function getParenDepthAt(text: string, offset: number): number {
+  let depth = 0;
+  for (let i = 0; i < offset; i++) {
+    if (text[i] === '(') depth++;
+    if (text[i] === ')') depth--;
+  }
+  return Math.max(0, depth);
+}
+
+/**
  * Check for invalid keyword sequences (always runs, Error severity).
+ * Only flags matches at top-level (paren depth 0) to avoid false positives
+ * inside subqueries and OVER() clauses.
  * Requirement 6.1
  */
 function lintKeywordSequences(
@@ -545,6 +559,9 @@ function lintKeywordSequences(
     let match: RegExpExecArray | null;
     const re = new RegExp(rule.pattern.source, 'gi');
     while ((match = re.exec(stripped)) !== null) {
+      // Skip matches inside parentheses (subqueries, OVER clauses, etc.)
+      if (getParenDepthAt(stripped, match.index) !== 0) continue;
+
       // The diagnostic range points at the unexpected token (capture group 1)
       // If capture group 1 exists, use its offset; otherwise use full match
       let tokenOffset = match.index;
@@ -691,6 +708,9 @@ function lintUnrecognizedFunctions(
 
     // Skip if it's a T-SQL control flow keyword used with parens
     if (T_SQL_CONTROL_FLOW.has(funcUpper)) continue;
+
+    // Skip if it's a valid T-SQL data type (used in DECLARE @var VARCHAR(50), variable assignments, etc.)
+    if (VALID_DATA_TYPES.has(funcUpper)) continue;
 
     // Emit warning for unrecognized function
     const pos = getPosition(originalText, match.index);

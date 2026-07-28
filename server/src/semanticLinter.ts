@@ -466,10 +466,12 @@ function checkOrderByInSubquery(text: string): LintResult[] {
     const depth = getParenDepthAt(stripped, match.index);
     if (depth === 0) continue; // Top-level ORDER BY is fine
 
+    // Check if this ORDER BY is inside an OVER() clause — that's valid (window functions)
+    if (isInsideOverClause(stripped, match.index)) continue;
+
     // We're inside parentheses — check if this SELECT has TOP or OFFSET
-    // Find the enclosing SELECT
-    const beforeOrderBy = stripped.substring(0, match.index);
-    const selectIdx = beforeOrderBy.lastIndexOf('SELECT');
+    // Find the enclosing SELECT at the same paren depth
+    const selectIdx = findEnclosingSelect(stripped, match.index);
     if (selectIdx === -1) continue;
 
     // Check the SELECT context (from SELECT to ORDER BY)
@@ -498,6 +500,51 @@ function checkOrderByInSubquery(text: string): LintResult[] {
   }
 
   return results;
+}
+
+/**
+ * Check if an ORDER BY at the given offset is inside an OVER() clause.
+ * Scans backward from the ORDER BY to find the opening '(' and checks if
+ * it's preceded by the OVER keyword.
+ */
+function isInsideOverClause(text: string, orderByOffset: number): boolean {
+  // Find the innermost opening paren that contains this ORDER BY
+  let depth = 0;
+  for (let i = orderByOffset - 1; i >= 0; i--) {
+    if (text[i] === ')') {
+      depth++;
+    } else if (text[i] === '(') {
+      if (depth === 0) {
+        // This is the opening paren that directly contains our ORDER BY
+        // Check if it's preceded by OVER (possibly with whitespace)
+        const before = text.substring(Math.max(0, i - 10), i).trimEnd();
+        if (/\bOVER$/i.test(before)) {
+          return true;
+        }
+        return false;
+      }
+      depth--;
+    }
+  }
+  return false;
+}
+
+/**
+ * Find the enclosing SELECT statement for an ORDER BY at the given offset.
+ * Searches backward for a SELECT keyword that's at the same paren depth.
+ */
+function findEnclosingSelect(text: string, orderByOffset: number): number {
+  const targetDepth = getParenDepthAt(text, orderByOffset);
+  const selectPattern = /\bSELECT\b/gi;
+  let lastMatch = -1;
+  let m: RegExpExecArray | null;
+  while ((m = selectPattern.exec(text)) !== null) {
+    if (m.index >= orderByOffset) break;
+    if (getParenDepthAt(text, m.index) === targetDepth) {
+      lastMatch = m.index;
+    }
+  }
+  return lastMatch;
 }
 
 // ─── E005: Mismatched parentheses ────────────────────────────────────────────
