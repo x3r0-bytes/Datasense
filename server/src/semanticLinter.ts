@@ -58,7 +58,8 @@ export function semanticLint(text: string, batchStartLine: number = 0): Diagnost
   results.push(...checkInsertColumnValueMismatch(text));
   results.push(...checkDuplicateAliases(text));
   results.push(...checkMismatchedBeginEnd(text));
-  results.push(...checkTopWithoutOrderBy(text));
+  // E012 removed: "TOP without ORDER BY" is valid exploratory SQL, not a bug
+  // results.push(...checkTopWithoutOrderBy(text));
   results.push(...checkNullComparison(text));
 
   return results.map(r => ({
@@ -852,54 +853,57 @@ function checkMismatchedBeginEnd(text: string): LintResult[] {
   return results;
 }
 
-// ─── E012: TOP without ORDER BY ──────────────────────────────────────────────
+// ─── E012: TOP without ORDER BY (REMOVED) ───────────────────────────────────
+// This rule has been disabled. "SELECT TOP N" without ORDER BY is valid
+// exploratory T-SQL syntax and should not produce a warning.
+// The function is kept commented out for reference.
 
-function checkTopWithoutOrderBy(text: string): LintResult[] {
-  const results: LintResult[] = [];
-  const stripped = stripStringsAndComments(text);
-
-  // Find SELECT TOP at top-level
-  const topPattern = /\bSELECT\s+(?:DISTINCT\s+)?TOP\b/gi;
-  let match: RegExpExecArray | null;
-  while ((match = topPattern.exec(stripped)) !== null) {
-    if (getParenDepthAt(stripped, match.index) !== 0) continue;
-
-    const stmtEnd = findStatementEnd(stripped, match.index + match[0].length);
-    const stmtText = stripped.substring(match.index, stmtEnd);
-
-    // Check for ORDER BY at top level of this statement
-    let hasOrderBy = false;
-    const obMatch = /\bORDER\s+BY\b/gi;
-    let ob: RegExpExecArray | null;
-    while ((ob = obMatch.exec(stmtText)) !== null) {
-      let d = 0;
-      for (let i = 0; i < ob.index; i++) {
-        if (stmtText[i] === '(') d++;
-        if (stmtText[i] === ')') d--;
-      }
-      if (d === 0) { hasOrderBy = true; break; }
-    }
-
-    if (!hasOrderBy) {
-      // Find the TOP keyword offset for the warning position
-      const topIdx = stripped.indexOf('TOP', match.index);
-      const pos = getPosition(text, topIdx >= 0 ? topIdx : match.index);
-      results.push({
-        code: 'E012',
-        message: 'TOP without ORDER BY returns arbitrary rows. Add ORDER BY for deterministic results.',
-        severity: DiagnosticSeverity.Warning,
-        range: {
-          startLine: pos.line,
-          startCol: pos.col,
-          endLine: pos.line,
-          endCol: pos.col + 3,
-        },
-      });
-    }
-  }
-
-  return results;
-}
+// function checkTopWithoutOrderBy(text: string): LintResult[] {
+//   const results: LintResult[] = [];
+//   const stripped = stripStringsAndComments(text);
+//
+//   // Find SELECT TOP at top-level
+//   const topPattern = /\bSELECT\s+(?:DISTINCT\s+)?TOP\b/gi;
+//   let match: RegExpExecArray | null;
+//   while ((match = topPattern.exec(stripped)) !== null) {
+//     if (getParenDepthAt(stripped, match.index) !== 0) continue;
+//
+//     const stmtEnd = findStatementEnd(stripped, match.index + match[0].length);
+//     const stmtText = stripped.substring(match.index, stmtEnd);
+//
+//     // Check for ORDER BY at top level of this statement
+//     let hasOrderBy = false;
+//     const obMatch = /\bORDER\s+BY\b/gi;
+//     let ob: RegExpExecArray | null;
+//     while ((ob = obMatch.exec(stmtText)) !== null) {
+//       let d = 0;
+//       for (let i = 0; i < ob.index; i++) {
+//         if (stmtText[i] === '(') d++;
+//         if (stmtText[i] === ')') d--;
+//       }
+//       if (d === 0) { hasOrderBy = true; break; }
+//     }
+//
+//     if (!hasOrderBy) {
+//       // Find the TOP keyword offset for the warning position
+//       const topIdx = stripped.indexOf('TOP', match.index);
+//       const pos = getPosition(text, topIdx >= 0 ? topIdx : match.index);
+//       results.push({
+//         code: 'E012',
+//         message: 'TOP without ORDER BY returns arbitrary rows. Add ORDER BY for deterministic results.',
+//         severity: DiagnosticSeverity.Warning,
+//         range: {
+//           startLine: pos.line,
+//           startCol: pos.col,
+//           endLine: pos.line,
+//           endCol: pos.col + 3,
+//         },
+//       });
+//     }
+//   }
+//
+//   return results;
+// }
 
 // ─── E013: NULL comparison with = or <> ──────────────────────────────────────
 

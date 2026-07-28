@@ -10,9 +10,26 @@ import { ObjectExplorerProvider } from './objectExplorer/objectExplorerProvider'
 import { isDisplayNameUnique, isPortValid } from './objectExplorer/connectionFormValidator';
 import { PREDEFINED_COLORS, isValidHexColor } from './connectionColorIndicator';
 
-// Use the msnodesqlv8 variant for Windows Authentication
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const mssqlNative = require('mssql/msnodesqlv8') as typeof mssql;
+// Lazy-load the msnodesqlv8 variant for Windows Authentication.
+// Loading eagerly at module scope crashes the entire module if the native
+// binary doesn't match the current Electron ABI version.
+let _mssqlNative: typeof mssql | null = null;
+function getMssqlNative(): typeof mssql {
+  if (!_mssqlNative) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      _mssqlNative = require('mssql/msnodesqlv8') as typeof mssql;
+    } catch (err: any) {
+      throw new Error(
+        'Failed to load the Windows Authentication driver (msnodesqlv8). ' +
+        'This is usually caused by a Node.js/Electron version mismatch with the native module. ' +
+        'Try reinstalling the extension or rebuilding native modules. ' +
+        'Error: ' + (err?.message || String(err))
+      );
+    }
+  }
+  return _mssqlNative;
+}
 
 /**
  * Data structure for form submissions from the webview.
@@ -264,7 +281,7 @@ export class ConnectionFormPanel {
           `Trusted_Connection=Yes`,
         ].join(';');
 
-        pool = new mssqlNative.ConnectionPool({
+        pool = new (getMssqlNative()).ConnectionPool({
           connectionString,
           connectionTimeout,
           requestTimeout: connectionTimeout,
