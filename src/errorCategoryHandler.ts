@@ -9,7 +9,9 @@ const RATE_LIMIT_WINDOW_MS = 5000;
  * and optional error number. This is a pure function with no side effects.
  *
  * Categorization rules:
- * - 'odbc-missing': message contains "Data source name not found" OR "ODBC Driver"
+ * - 'odbc-missing': message contains "Data source name not found" OR "Specified driver could not be loaded"
+ *   OR starts with "No compatible Microsoft ODBC Driver" (from detectOdbcDriver)
+ *   OR contains "Failed to load the Windows Authentication driver" (from getMssqlNative)
  * - 'invalid-credentials': error has number property === 18456
  * - 'unreachable': message contains "ECONNREFUSED", "ENOTFOUND", or "getaddrinfo"
  * - 'timeout': message contains "ETIMEOUT" or "connect ETIMEDOUT"
@@ -22,7 +24,13 @@ export function categorizeConnectionError(error: Error, config: ConnectionConfig
   const port = config.port ?? 1433;
 
   // Check categories in priority order
-  if (message.includes('Data source name not found') || message.includes('ODBC Driver')) {
+  // Only match when the ODBC driver is genuinely missing — not every error that mentions "ODBC Driver"
+  if (
+    message.includes('Data source name not found') ||
+    message.includes('Specified driver could not be loaded') ||
+    message.includes('No compatible Microsoft ODBC Driver') ||
+    message.includes('Failed to load the Windows Authentication driver')
+  ) {
     return {
       category: 'odbc-missing',
       originalMessage: message,

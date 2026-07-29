@@ -10,7 +10,8 @@ import * as fc from 'fast-check';
  *
  * For any error object with a message string and optional error number,
  * categorizeConnectionError SHALL return:
- * - 'odbc-missing' if the message contains "Data source name not found" or "ODBC Driver"
+ * - 'odbc-missing' if the message contains "Data source name not found", "Specified driver could not be loaded",
+ *   "No compatible Microsoft ODBC Driver", or "Failed to load the Windows Authentication driver"
  * - 'invalid-credentials' if the error number is 18456
  * - 'unreachable' if the message contains "ECONNREFUSED", "ENOTFOUND", or "getaddrinfo"
  * - 'timeout' if the message contains "ETIMEOUT" or "connect ETIMEDOUT"
@@ -67,7 +68,9 @@ const arbitraryConnectionConfig: fc.Arbitrary<ConnectionConfig> = fc
 /** Known error patterns that trigger specific categories */
 const knownPatterns = [
   'Data source name not found',
-  'ODBC Driver',
+  'Specified driver could not be loaded',
+  'No compatible Microsoft ODBC Driver',
+  'Failed to load the Windows Authentication driver',
   'ECONNREFUSED',
   'ENOTFOUND',
   'getaddrinfo',
@@ -83,7 +86,12 @@ const arbitraryGenericMessage: fc.Arbitrary<string> = fc
 /** Generator: error message containing ODBC-missing patterns */
 const arbitraryOdbcMessage: fc.Arbitrary<string> = fc
   .tuple(
-    fc.constantFrom('Data source name not found', 'ODBC Driver'),
+    fc.constantFrom(
+      'Data source name not found',
+      'Specified driver could not be loaded',
+      'No compatible Microsoft ODBC Driver',
+      'Failed to load the Windows Authentication driver'
+    ),
     fc.string({ minLength: 0, maxLength: 20 }),
     fc.string({ minLength: 0, maxLength: 20 })
   )
@@ -97,7 +105,12 @@ const arbitraryUnreachableMessage: fc.Arbitrary<string> = fc
     fc.string({ minLength: 0, maxLength: 20 })
   )
   .map(([pattern, prefix, suffix]) => prefix + pattern + suffix)
-  .filter((msg) => !msg.includes('Data source name not found') && !msg.includes('ODBC Driver'));
+  .filter((msg) =>
+    !msg.includes('Data source name not found') &&
+    !msg.includes('Specified driver could not be loaded') &&
+    !msg.includes('No compatible Microsoft ODBC Driver') &&
+    !msg.includes('Failed to load the Windows Authentication driver')
+  );
 
 /** Generator: error message containing timeout patterns */
 const arbitraryTimeoutMessage: fc.Arbitrary<string> = fc
@@ -110,7 +123,9 @@ const arbitraryTimeoutMessage: fc.Arbitrary<string> = fc
   .filter(
     (msg) =>
       !msg.includes('Data source name not found') &&
-      !msg.includes('ODBC Driver') &&
+      !msg.includes('Specified driver could not be loaded') &&
+      !msg.includes('No compatible Microsoft ODBC Driver') &&
+      !msg.includes('Failed to load the Windows Authentication driver') &&
       !msg.includes('ECONNREFUSED') &&
       !msg.includes('ENOTFOUND') &&
       !msg.includes('getaddrinfo')
@@ -134,7 +149,7 @@ describe('ErrorCategoryHandler Property Tests', () => {
      * Validates: Requirements 2.1, 2.5, 2.6, 2.8
      */
 
-    it('categorizes ODBC-missing errors when message contains "Data source name not found" or "ODBC Driver"', () => {
+    it('categorizes ODBC-missing errors when message contains driver-not-found patterns', () => {
       fc.assert(
         fc.property(
           arbitraryOdbcMessage,
