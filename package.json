@@ -3,7 +3,7 @@
   "displayName": "Datasense",
   "description": "Schema-aware IntelliSense, query execution, Object Explorer, and connection management for Microsoft SQL Server.",
   "publisher": "Xero-Bytes",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "license": "MIT",
   "icon": "resources/icon.png",
   "repository": {
@@ -69,7 +69,8 @@
     "onCommand:sqlServer.objectExplorerSearch",
     "onCommand:sqlServer.addConnectionGroup",
     "onCommand:sqlServer.removeConnectionGroup",
-    "onCommand:sqlServer.assignToGroup"
+    "onCommand:sqlServer.assignToGroup",
+    "onCommand:sqlServer.diagnoseConnection"
   ],
   "contributes": {
     "configuration": [
@@ -459,6 +460,10 @@
       {
         "command": "sqlServer.assignToGroup",
         "title": "Assign to Group..."
+      },
+      {
+        "command": "sqlServer.diagnoseConnection",
+        "title": "SQL Server: Diagnose Connection Issues"
       }
     ],
     "keybindings": [

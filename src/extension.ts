@@ -45,6 +45,7 @@ import { SchemaDiff } from './schemaDiff/schemaDiffTypes';
 import { SqlSearchService } from './sqlSearchService';
 import { SqlSearchPanelProvider } from './sqlSearchPanelProvider';
 import { checkBeforeExecution } from './destructiveQueryGuard';
+import { runConnectionDiagnostics } from './connectionDiagnostics';
 
 let client: LanguageClient | undefined;
 let connectionManager: ConnectionManager | undefined;
@@ -371,6 +372,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Register Keyboard Shortcut command — QuickPick listing all extension shortcuts (Requirements 6.1–6.6)
   const keyboardShortcutDisposable = registerKeyboardShortcutCommand(context);
   context.subscriptions.push(keyboardShortcutDisposable);
+
+  // Register Connection Diagnostics command — dumps driver detection info to Output panel
+  const diagCmd = vscode.commands.registerCommand('sqlServer.diagnoseConnection', () => {
+    runConnectionDiagnostics(outputChannel);
+  });
+  context.subscriptions.push(diagCmd);
 
   // --- Editor Connection Indicator (Requirements 6.1, 6.2, 6.3, 6.4) ---
   editorConnectionIndicator = new EditorConnectionIndicator(connectionManager.onConnectionChanged);
