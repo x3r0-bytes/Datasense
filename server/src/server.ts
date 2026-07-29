@@ -48,6 +48,45 @@ function getMssqlNative(): typeof mssql {
   return _mssqlNative;
 }
 
+/**
+ * Detects the highest-version ODBC Driver for SQL Server installed on the system (v16+).
+ * Queries the Windows registry ODBCINST.INI key for any "ODBC Driver XX for SQL Server"
+ * entries, then returns the highest version found.
+ */
+function detectOdbcDriver(): string {
+  const { execSync } = require('child_process');
+
+  try {
+    const output = execSync(
+      'reg query "HKLM\\SOFTWARE\\ODBC\\ODBCINST.INI" /s /f "ODBC Driver" /k',
+      { stdio: 'pipe', windowsHide: true, encoding: 'utf-8' }
+    ) as string;
+
+    const driverPattern = /ODBC Driver (\d+) for SQL Server/g;
+    let match: RegExpExecArray | null;
+    let highestVersion = 0;
+
+    while ((match = driverPattern.exec(output)) !== null) {
+      const version = parseInt(match[1], 10);
+      if (version >= 16 && version > highestVersion) {
+        highestVersion = version;
+      }
+    }
+
+    if (highestVersion > 0) {
+      return `ODBC Driver ${highestVersion} for SQL Server`;
+    }
+  } catch {
+    // Registry query failed
+  }
+
+  throw new Error(
+    'No compatible Microsoft ODBC Driver for SQL Server (v16 or higher) was found. ' +
+    'Windows Authentication requires an ODBC Driver to be installed on this machine. ' +
+    'Download it from: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server'
+  );
+}
+
 // --- Custom LSP message types ---
 
 /**
@@ -528,8 +567,9 @@ function createPool(config: ConnectionConfig): Promise<mssql.ConnectionPool> {
     pool = new mssql.ConnectionPool(mssqlConfig);
   } else {
     // Windows Authentication using msnodesqlv8 driver
+    const driver = detectOdbcDriver();
     const connectionString = [
-      `Driver={ODBC Driver 17 for SQL Server}`,
+      `Driver={${driver}}`,
       `Server=${config.host}${config.port && config.port !== 1433 ? ',' + config.port : ''}`,
       `Database=${database}`,
       `Trusted_Connection=Yes`,
@@ -545,17 +585,7 @@ function createPool(config: ConnectionConfig): Promise<mssql.ConnectionPool> {
     } as any);
   }
 
-  return pool.connect().catch((err: any) => {
-    const message = err?.message || String(err);
-    if (message.includes('Data source name not found') || message.includes('ODBC Driver')) {
-      throw new Error(
-        'Microsoft ODBC Driver for SQL Server is not installed. ' +
-        'Windows Authentication requires the ODBC Driver 17 (or 18) to be installed on this machine. ' +
-        'Download it from: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server'
-      );
-    }
-    throw err;
-  });
+  return pool.connect();
 }
 
 // Hook up document manager to the connection

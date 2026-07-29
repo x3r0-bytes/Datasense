@@ -32,6 +32,45 @@ function getMssqlNative(): typeof mssql {
 }
 
 /**
+ * Detects the highest-version ODBC Driver for SQL Server installed on the system (v16+).
+ * Queries the Windows registry ODBCINST.INI key for any "ODBC Driver XX for SQL Server"
+ * entries, then returns the highest version found.
+ */
+function detectOdbcDriver(): string {
+  const { execSync } = require('child_process');
+
+  try {
+    const output = execSync(
+      'reg query "HKLM\\SOFTWARE\\ODBC\\ODBCINST.INI" /s /f "ODBC Driver" /k',
+      { stdio: 'pipe', windowsHide: true, encoding: 'utf-8' }
+    ) as string;
+
+    const driverPattern = /ODBC Driver (\d+) for SQL Server/g;
+    let match: RegExpExecArray | null;
+    let highestVersion = 0;
+
+    while ((match = driverPattern.exec(output)) !== null) {
+      const version = parseInt(match[1], 10);
+      if (version >= 16 && version > highestVersion) {
+        highestVersion = version;
+      }
+    }
+
+    if (highestVersion > 0) {
+      return `ODBC Driver ${highestVersion} for SQL Server`;
+    }
+  } catch {
+    // Registry query failed
+  }
+
+  throw new Error(
+    'No compatible Microsoft ODBC Driver for SQL Server (v16 or higher) was found. ' +
+    'Windows Authentication requires an ODBC Driver to be installed on this machine. ' +
+    'Download it from: https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server'
+  );
+}
+
+/**
  * Data structure for form submissions from the webview.
  */
 export interface ConnectionFormData {
@@ -274,8 +313,9 @@ export class ConnectionFormPanel {
         // Windows Authentication using msnodesqlv8 driver
         const port = data.port || 1433;
         const serverPart = data.server + (port !== 1433 ? `,${port}` : '');
+        const driver = detectOdbcDriver();
         const connectionString = [
-          `Driver={ODBC Driver 17 for SQL Server}`,
+          `Driver={${driver}}`,
           `Server=${serverPart}`,
           `Database=${database}`,
           `Trusted_Connection=Yes`,

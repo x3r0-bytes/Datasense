@@ -1,7 +1,7 @@
 # Datasense — Project Summary
 
-> **Current Version:** 0.10.0  
-> **Last Updated:** 2026-06-17
+> **Current Version:** 0.10.2  
+> **Last Updated:** 2026-07-28
 
 ---
 
@@ -258,7 +258,23 @@ All three read the same `.sql-connections.json` but maintain their own pools.
 
 ## Version History
 
-### v0.10.0 (Current)
+### v0.10.2 (Current)
+
+- **Linter False Positive Fixes** — Eliminated six categories of false positive diagnostics across the T-SQL linting pipeline:
+  - Alias-qualified column references (e.g., `SELECT a.Name FROM Employees a`) no longer incorrectly flagged as ORL002 — alias now resolves to the underlying table's column set
+  - ORDER BY in subqueries with TOP or OFFSET no longer incorrectly flagged as E004
+  - Data types with parentheses (e.g., `DECLARE @v VARCHAR(50)`) no longer flagged as unrecognized functions (ESL003)
+  - Bracketed identifiers (e.g., `[dbo].[TableName]`) now correctly match against the schema cache (fixes ORL001 false positives)
+  - ORDER BY inside OVER clauses with nested function calls in PARTITION BY no longer incorrectly flagged as E004
+  - Removed the unhelpful E012 "TOP without ORDER BY" warning — `SELECT TOP N` without ORDER BY is valid T-SQL for exploratory queries
+- Affected modules: `server/src/objectReferenceLinter.ts`, `server/src/semanticLinter.ts`, `server/src/enhancedSyntaxLinter.ts`
+- Property-based tests (fast-check) added for both bug condition exploration and preservation of genuine error detection
+
+### v0.10.1
+
+- **Pre-v1 Bugfixes** — Three-part name completions, query cancellation reliability, JOIN ON clause AND conditions, WHERE column/operator suggestions
+
+### v0.10.0
 
 - **Feature Complete Milestone** — All planned features implemented and ready for full manual QA pass before v1.0.0 release
 - **Paginated Large Result Sets** — "Show More" button for result sets exceeding 10,000 rows:

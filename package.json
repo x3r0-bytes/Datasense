@@ -3,7 +3,7 @@
   "displayName": "Datasense",
   "description": "Schema-aware IntelliSense, query execution, Object Explorer, and connection management for Microsoft SQL Server.",
   "publisher": "Xero-Bytes",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "license": "MIT",
   "icon": "resources/icon.png",
   "repository": {
