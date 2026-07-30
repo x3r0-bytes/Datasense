@@ -90,6 +90,22 @@ function detectOdbcDriver(): string {
 // --- Custom LSP message types ---
 
 /**
+ * Normalizes legacy boolean encrypt values and unknown strings to the
+ * new string union type. Used during config parsing.
+ * This is a local copy because the language server runs as a separate process
+ * and cannot import from the client-side src/types.ts.
+ */
+function normalizeEncryptValue(
+  value: boolean | string | undefined | null
+): 'Optional' | 'Mandatory' | 'Strict' | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value === true || value === 'Mandatory') return 'Mandatory';
+  if (value === false || value === 'Optional') return 'Optional';
+  if (value === 'Strict') return 'Strict';
+  return undefined;
+}
+
+/**
  * Connection configuration matching the client-side ConnectionConfig interface.
  */
 export interface ConnectionConfig {
@@ -99,7 +115,7 @@ export interface ConnectionConfig {
   database?: string;
   user?: string;
   password?: string;
-  encrypt?: boolean;
+  encrypt?: 'Optional' | 'Mandatory' | 'Strict';
   trustServerCertificate?: boolean;
   /** Optional 6-digit CSS hex color for connection identification (e.g., "#FF0000") */
   color?: string;
@@ -549,6 +565,14 @@ function createPool(config: ConnectionConfig): Promise<mssql.ConnectionPool> {
   let pool: mssql.ConnectionPool;
   const database = config.database || 'master';
 
+  // Normalize encrypt value to handle legacy booleans from older config files
+  const encryptValue = normalizeEncryptValue(config.encrypt as any) ?? 'Optional';
+
+  // Map encrypt string union to mssql boolean option
+  const encryptEnabled = encryptValue === 'Mandatory' || encryptValue === 'Strict';
+  // Strict mode forces trustServerCertificate to false
+  const trustCert = encryptValue === 'Strict' ? false : (config.trustServerCertificate ?? false);
+
   if (config.user) {
     // SQL Server authentication using default Tedious driver
     const mssqlConfig: mssql.config = {
@@ -558,8 +582,8 @@ function createPool(config: ConnectionConfig): Promise<mssql.ConnectionPool> {
       user: config.user,
       password: config.password,
       options: {
-        encrypt: config.encrypt ?? false,
-        trustServerCertificate: config.trustServerCertificate ?? false,
+        encrypt: encryptEnabled,
+        trustServerCertificate: trustCert,
       },
       connectionTimeout: 30000,
     };
@@ -579,8 +603,8 @@ function createPool(config: ConnectionConfig): Promise<mssql.ConnectionPool> {
       connectionString,
       connectionTimeout: 30000,
       options: {
-        encrypt: config.encrypt ?? false,
-        trustServerCertificate: config.trustServerCertificate ?? false,
+        encrypt: encryptEnabled,
+        trustServerCertificate: trustCert,
       },
     } as any);
   }

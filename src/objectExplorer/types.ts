@@ -243,7 +243,7 @@ export interface ServerConnectionConfig {
   authType: 'sql' | 'windows';
   user?: string;                   // Required for SQL auth
   password?: string;               // Required for SQL auth (NOT persisted)
-  encrypt?: boolean;
+  encrypt?: 'Optional' | 'Mandatory' | 'Strict';
   trustServerCertificate?: boolean;
   /** Optional 6-digit hex color for connection identification, e.g. "#FF0000" */
   color?: string;
@@ -268,7 +268,7 @@ export interface ConnectionFormInput {
   serverName: string;
   displayName: string;
   port?: string;
-  encrypt: boolean;
+  encrypt: 'Optional' | 'Mandatory' | 'Strict';
   trustServerCertificate: boolean;
   username?: string;
   password?: string;

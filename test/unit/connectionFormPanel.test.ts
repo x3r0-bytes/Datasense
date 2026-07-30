@@ -33,6 +33,8 @@ function validFormData(overrides?: Partial<ConnectionFormData>): ConnectionFormD
     username: 'sa',
     password: 'P@ssw0rd',
     color: '',
+    trustServerCertificate: false,
+    encrypt: 'Optional',
     ...overrides,
   };
 }

@@ -234,7 +234,7 @@ describe('ConnectionManager', () => {
       const result = manager.loadConnections();
 
       expect(result).toHaveLength(1);
-      expect(result[0].encrypt).toBe(true);
+      expect(result[0].encrypt).toBe('Mandatory');
       expect(result[0].trustServerCertificate).toBe(true);
     });
 

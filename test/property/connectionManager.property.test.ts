@@ -91,7 +91,7 @@ const arbitraryValidConnectionConfig: fc.Arbitrary<{
   port?: number;
   user?: string;
   password?: string;
-  encrypt?: boolean;
+  encrypt?: 'Optional' | 'Mandatory' | 'Strict';
   trustServerCertificate?: boolean;
 }> = fc.record({
   name: arbitraryName,
@@ -100,7 +100,7 @@ const arbitraryValidConnectionConfig: fc.Arbitrary<{
   port: fc.option(arbitraryPort, { nil: undefined }),
   user: fc.option(arbitraryName, { nil: undefined }),
   password: fc.option(fc.string({ minLength: 1, maxLength: 30 }), { nil: undefined }),
-  encrypt: fc.option(fc.boolean(), { nil: undefined }),
+  encrypt: fc.option(fc.constantFrom('Optional' as const, 'Mandatory' as const, 'Strict' as const), { nil: undefined }),
   trustServerCertificate: fc.option(fc.boolean(), { nil: undefined }),
 });
 

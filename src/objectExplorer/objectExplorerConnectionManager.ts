@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ServerConnectionConfig, ConnectionGroup } from './types';
 import { getEffectiveDatabase } from './nodeUtils';
+import { normalizeEncryptValue } from '../types';
 
 // Lazy-load the msnodesqlv8 variant for Windows Authentication.
 // Loading eagerly at module scope crashes the entire module if the native
@@ -129,7 +130,7 @@ export class ObjectExplorerConnectionManager {
         database: typeof entry.database === 'string' ? entry.database : undefined,
         authType: entry.authType || (entry.user ? 'sql' : 'windows'),
         user: typeof entry.user === 'string' ? entry.user : undefined,
-        encrypt: typeof entry.encrypt === 'boolean' ? entry.encrypt : undefined,
+        encrypt: normalizeEncryptValue(entry.encrypt),
         trustServerCertificate: typeof entry.trustServerCertificate === 'boolean' ? entry.trustServerCertificate : undefined,
         color: typeof entry.color === 'string' ? entry.color : undefined,
         group: typeof entry.group === 'string' ? entry.group : undefined,
@@ -406,8 +407,20 @@ export class ObjectExplorerConnectionManager {
   private async createPool(config: ServerConnectionConfig, database: string): Promise<mssql.ConnectionPool> {
     let pool: mssql.ConnectionPool;
 
+    // Normalize encrypt value: undefined or unrecognized defaults to 'Optional' behavior
+    const encryptValue = config.encrypt ?? 'Optional';
+
     if (config.authType === 'sql' && config.user) {
       // SQL Server authentication using default Tedious driver
+      // Encrypt mapping:
+      //   'Optional' → encrypt: false, trustServerCertificate: from config
+      //   'Mandatory' → encrypt: true, trustServerCertificate: from config
+      //   'Strict' → encrypt: true, trustServerCertificate: false (forced)
+      const encryptOption = encryptValue !== 'Optional'; // true for Mandatory and Strict
+      const trustServerCert = encryptValue === 'Strict'
+        ? false
+        : (config.trustServerCertificate ?? false);
+
       const mssqlConfig: mssql.config = {
         server: config.host,
         port: config.port ?? 1433,
@@ -417,14 +430,22 @@ export class ObjectExplorerConnectionManager {
         connectionTimeout: CONNECTION_TIMEOUT_MS,
         requestTimeout: CONNECTION_TIMEOUT_MS,
         options: {
-          encrypt: config.encrypt ?? false,
-          trustServerCertificate: config.trustServerCertificate ?? false,
+          encrypt: encryptOption,
+          trustServerCertificate: trustServerCert,
         },
       };
 
       pool = new mssql.ConnectionPool(mssqlConfig);
     } else {
       // Windows Authentication using msnodesqlv8 driver
+      // Encrypt-to-ODBC keyword mapping:
+      //   'Optional' → Encrypt=no
+      //   'Mandatory' → Encrypt=yes
+      //   'Strict' → Encrypt=strict
+      const encryptKeyword = encryptValue === 'Strict'
+        ? 'strict'
+        : encryptValue === 'Mandatory' ? 'yes' : 'no';
+
       const serverPart = config.host + (config.port && config.port !== 1433 ? `,${config.port}` : '');
       const driver = detectOdbcDriver();
       const connectionString = [
@@ -432,6 +453,7 @@ export class ObjectExplorerConnectionManager {
         `Server=${serverPart}`,
         `Database=${database}`,
         `Trusted_Connection=Yes`,
+        `Encrypt=${encryptKeyword}`,
       ].join(';');
 
       pool = new (getMssqlNative()).ConnectionPool({
@@ -439,7 +461,6 @@ export class ObjectExplorerConnectionManager {
         connectionTimeout: CONNECTION_TIMEOUT_MS,
         requestTimeout: CONNECTION_TIMEOUT_MS,
         options: {
-          encrypt: config.encrypt ?? false,
           trustServerCertificate: config.trustServerCertificate ?? false,
         },
       } as any);

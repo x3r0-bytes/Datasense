@@ -9,11 +9,25 @@ export interface ConnectionConfig {
   database?: string;      // optional, defaults to "master"
   user?: string;          // optional (omit for Windows Auth)
   password?: string;      // optional
-  encrypt?: boolean;      // optional
+  encrypt?: 'Optional' | 'Mandatory' | 'Strict';  // optional, defaults to 'Optional' behavior
   trustServerCertificate?: boolean; // optional
   authType?: 'sql' | 'windows'; // optional, inferred from user field if absent
   /** Optional 6-digit hex color for connection identification, e.g. "#FF0000" */
   color?: string;
+}
+
+/**
+ * Normalizes legacy boolean encrypt values and unknown strings to the
+ * new string union type. Used during config file parsing.
+ */
+export function normalizeEncryptValue(
+  value: boolean | string | undefined | null
+): 'Optional' | 'Mandatory' | 'Strict' | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value === true || value === 'Mandatory') return 'Mandatory';
+  if (value === false || value === 'Optional') return 'Optional';
+  if (value === 'Strict') return 'Strict';
+  return undefined; // Unrecognized value → treated as unset (defaults to Optional behavior)
 }
 
 // Connection Manager

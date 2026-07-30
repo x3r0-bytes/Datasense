@@ -9,6 +9,7 @@ import { ObjectExplorerConnectionManager } from './objectExplorer/objectExplorer
 import { ObjectExplorerProvider } from './objectExplorer/objectExplorerProvider';
 import { isDisplayNameUnique, isPortValid } from './objectExplorer/connectionFormValidator';
 import { PREDEFINED_COLORS, isValidHexColor } from './connectionColorIndicator';
+import { normalizeEncryptValue } from './types';
 
 // Lazy-load the msnodesqlv8 variant for Windows Authentication.
 // Loading eagerly at module scope crashes the entire module if the native
@@ -82,6 +83,8 @@ export interface ConnectionFormData {
   username: string;
   password: string;
   color: string;
+  trustServerCertificate: boolean;
+  encrypt: 'Optional' | 'Mandatory' | 'Strict';
 }
 
 /**
@@ -145,6 +148,12 @@ export function validateConnectionFormData(
     if (!isValidHexColor(data.color.trim())) {
       errors.color = 'Color must be a valid hex value in #RRGGBB format';
     }
+  }
+
+  // Encrypt: must be one of 'Optional', 'Mandatory', 'Strict'
+  const validEncryptValues: Array<ConnectionFormData['encrypt']> = ['Optional', 'Mandatory', 'Strict'];
+  if (!validEncryptValues.includes(data.encrypt)) {
+    errors.encrypt = 'Invalid encrypt value';
   }
 
   return errors;
@@ -252,6 +261,8 @@ export class ConnectionFormPanel {
       authType: data.authType,
       user: data.authType === 'sql' ? data.username : undefined,
       password: data.authType === 'sql' && data.password ? data.password : undefined,
+      trustServerCertificate: data.trustServerCertificate,
+      encrypt: data.encrypt,
       color: data.color && data.color.trim().length > 0 ? data.color.trim() : undefined,
     };
 
@@ -294,6 +305,27 @@ export class ConnectionFormPanel {
 
       if (data.authType === 'sql') {
         // SQL Server authentication using default Tedious driver
+        // Map encrypt mode to mssql options
+        const encryptMode = data.encrypt || 'Optional';
+        let encryptOption: boolean;
+        let trustServerCertOption: boolean;
+
+        switch (encryptMode) {
+          case 'Mandatory':
+            encryptOption = true;
+            trustServerCertOption = data.trustServerCertificate;
+            break;
+          case 'Strict':
+            encryptOption = true;
+            trustServerCertOption = false; // Forced false for Strict
+            break;
+          case 'Optional':
+          default:
+            encryptOption = false;
+            trustServerCertOption = data.trustServerCertificate;
+            break;
+        }
+
         const mssqlConfig: mssql.config = {
           server: data.server,
           port: data.port || 1433,
@@ -303,8 +335,8 @@ export class ConnectionFormPanel {
           connectionTimeout,
           requestTimeout: connectionTimeout,
           options: {
-            encrypt: false,
-            trustServerCertificate: false,
+            encrypt: encryptOption,
+            trustServerCertificate: trustServerCertOption,
           },
         };
 
@@ -314,21 +346,44 @@ export class ConnectionFormPanel {
         const port = data.port || 1433;
         const serverPart = data.server + (port !== 1433 ? `,${port}` : '');
         const driver = detectOdbcDriver();
-        const connectionString = [
+
+        // Map encrypt value to ODBC Encrypt keyword
+        const encryptMode = data.encrypt || 'Optional';
+        let encryptKeyword: string;
+        switch (encryptMode) {
+          case 'Mandatory':
+            encryptKeyword = 'Encrypt=yes';
+            break;
+          case 'Strict':
+            encryptKeyword = 'Encrypt=strict';
+            break;
+          case 'Optional':
+          default:
+            encryptKeyword = 'Encrypt=no';
+            break;
+        }
+
+        const connectionStringParts = [
           `Driver={${driver}}`,
           `Server=${serverPart}`,
           `Database=${database}`,
           `Trusted_Connection=Yes`,
-        ].join(';');
+          encryptKeyword,
+        ];
+
+        // Add TrustServerCertificate for Optional/Mandatory (not for Strict)
+        if (encryptMode !== 'Strict') {
+          connectionStringParts.push(
+            `TrustServerCertificate=${data.trustServerCertificate ? 'yes' : 'no'}`
+          );
+        }
+
+        const connectionString = connectionStringParts.join(';');
 
         pool = new (getMssqlNative()).ConnectionPool({
           connectionString,
           connectionTimeout,
           requestTimeout: connectionTimeout,
-          options: {
-            encrypt: false,
-            trustServerCertificate: false,
-          },
         } as any);
       }
 
@@ -374,6 +429,8 @@ export class ConnectionFormPanel {
     const authType = populateData?.authType || 'sql';
     const username = populateData?.user || '';
     const savedColor = populateData?.color || '';
+    const trustServerCertificate = populateData?.trustServerCertificate ?? false;
+    const encrypt = normalizeEncryptValue(populateData?.encrypt) ?? 'Optional';
     const passwordPlaceholder = isEditMode
       ? 'Password required at connect time'
       : 'Enter password';
@@ -457,6 +514,37 @@ export class ConnectionFormPanel {
 
     input::placeholder {
       color: var(--vscode-input-placeholderForeground);
+    }
+
+    select {
+      width: 100%;
+      max-width: 400px;
+      padding: 6px 10px;
+      border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+      background-color: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border-radius: 2px;
+      font-family: var(--vscode-font-family);
+      font-size: var(--vscode-font-size);
+      outline: none;
+    }
+
+    select:focus {
+      border-color: var(--vscode-focusBorder);
+      outline: 1px solid var(--vscode-focusBorder);
+      outline-offset: -1px;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: normal;
+      cursor: pointer;
+    }
+
+    .checkbox-label input[type="checkbox"] {
+      accent-color: var(--vscode-focusBorder);
     }
 
     .radio-group {
@@ -673,14 +761,21 @@ export class ConnectionFormPanel {
     <hr class="separator" />
 
     <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="trustServerCertificate" name="trustServerCertificate" ${trustServerCertificate ? 'checked' : ''} tabindex="5" />
+        Trust Server Certificate
+      </label>
+    </div>
+
+    <div class="form-group">
       <label>Authentication Type<span class="required">*</span></label>
       <div class="radio-group">
         <label>
-          <input type="radio" name="authType" value="sql" ${authType === 'sql' ? 'checked' : ''} tabindex="5" />
+          <input type="radio" name="authType" value="sql" ${authType === 'sql' ? 'checked' : ''} tabindex="6" />
           SQL Authentication
         </label>
         <label>
-          <input type="radio" name="authType" value="windows" ${authType === 'windows' ? 'checked' : ''} tabindex="6" />
+          <input type="radio" name="authType" value="windows" ${authType === 'windows' ? 'checked' : ''} tabindex="7" />
           Windows Authentication
         </label>
       </div>
@@ -689,15 +784,25 @@ export class ConnectionFormPanel {
     <div class="sql-auth-fields ${authType === 'windows' ? 'hidden' : ''}" id="sqlAuthFields">
       <div class="form-group">
         <label for="username">Username<span class="required">*</span></label>
-        <input type="text" id="username" name="username" value="${this.escapeHtml(username)}" placeholder="SQL Server username" tabindex="7" />
+        <input type="text" id="username" name="username" value="${this.escapeHtml(username)}" placeholder="SQL Server username" tabindex="8" />
         <div class="error-message" id="username-error"></div>
       </div>
 
       <div class="form-group">
         <label for="password">Password</label>
-        <input type="password" id="password" name="password" value="" placeholder="${this.escapeHtml(passwordPlaceholder)}" tabindex="8" />
+        <input type="password" id="password" name="password" value="" placeholder="${this.escapeHtml(passwordPlaceholder)}" tabindex="9" />
         <div class="error-message" id="password-error"></div>
       </div>
+    </div>
+
+    <div class="form-group">
+      <label for="encrypt">Encrypt</label>
+      <select id="encrypt" name="encrypt" tabindex="10">
+        <option value="Optional" ${encrypt === 'Optional' ? 'selected' : ''}>Optional</option>
+        <option value="Mandatory" ${encrypt === 'Mandatory' ? 'selected' : ''}>Mandatory</option>
+        <option value="Strict" ${encrypt === 'Strict' ? 'selected' : ''}>Strict</option>
+      </select>
+      <div class="error-message" id="encrypt-error"></div>
     </div>
 
     <hr class="separator" />
@@ -708,9 +813,9 @@ export class ConnectionFormPanel {
         ${swatchesHtml}
       </div>
       <div class="custom-color-row">
-        <input type="text" id="customColor" name="customColor" value="${this.escapeHtml(savedColor)}" placeholder="#RRGGBB" maxlength="7" tabindex="9" />
+        <input type="text" id="customColor" name="customColor" value="${this.escapeHtml(savedColor)}" placeholder="#RRGGBB" maxlength="7" tabindex="11" />
         <div class="color-preview" id="colorPreview"></div>
-        <button type="button" class="btn-clear-color" id="clearColorBtn" tabindex="10">Clear</button>
+        <button type="button" class="btn-clear-color" id="clearColorBtn" tabindex="12">Clear</button>
       </div>
       <div class="error-message" id="color-error"></div>
     </div>
@@ -718,9 +823,9 @@ export class ConnectionFormPanel {
     <hr class="separator" />
 
     <div class="button-row">
-      <button type="submit" class="btn-primary" tabindex="11">Save</button>
-      <button type="button" class="btn-secondary" id="testConnectionBtn" tabindex="12">Test Connection</button>
-      <button type="button" class="btn-secondary" id="cancelBtn" tabindex="13">Cancel</button>
+      <button type="submit" class="btn-primary" tabindex="13">Save</button>
+      <button type="button" class="btn-secondary" id="testConnectionBtn" tabindex="14">Test Connection</button>
+      <button type="button" class="btn-secondary" id="cancelBtn" tabindex="15">Cancel</button>
     </div>
 
     <div class="test-result" id="testResult"></div>
@@ -854,6 +959,8 @@ export class ConnectionFormPanel {
           username: document.getElementById('username').value.trim(),
           password: document.getElementById('password').value,
           color: document.getElementById('customColor').value.trim(),
+          trustServerCertificate: document.getElementById('trustServerCertificate').checked,
+          encrypt: document.getElementById('encrypt').value,
         };
       }
 

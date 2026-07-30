@@ -2,7 +2,7 @@ import * as mssql from 'mssql';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ConnectionConfig, IConnectionManager } from './types';
+import { ConnectionConfig, IConnectionManager, normalizeEncryptValue } from './types';
 
 // Lazy-load the msnodesqlv8 variant for Windows Authentication.
 // Loading eagerly at module scope crashes the entire module if the native
@@ -159,7 +159,7 @@ export class ConnectionManager implements IConnectionManager {
         database: typeof entry.database === 'string' && entry.database.trim() ? entry.database : 'master',
         user: typeof entry.user === 'string' ? entry.user : undefined,
         password: typeof entry.password === 'string' ? entry.password : undefined,
-        encrypt: typeof entry.encrypt === 'boolean' ? entry.encrypt : undefined,
+        encrypt: normalizeEncryptValue(entry.encrypt),
         trustServerCertificate: typeof entry.trustServerCertificate === 'boolean' ? entry.trustServerCertificate : undefined,
         authType: entry.authType === 'sql' || entry.authType === 'windows' ? entry.authType : undefined,
       };
@@ -182,6 +182,29 @@ export class ConnectionManager implements IConnectionManager {
 
     if (config.user) {
       // SQL Server authentication using default Tedious driver
+      // Normalize encrypt value (undefined or unrecognized → treat as 'Optional')
+      const encryptMode = config.encrypt ?? 'Optional';
+
+      // Map encrypt mode to mssql options
+      let encryptOption: boolean;
+      let trustServerCertOption: boolean;
+
+      switch (encryptMode) {
+        case 'Mandatory':
+          encryptOption = true;
+          trustServerCertOption = config.trustServerCertificate ?? false;
+          break;
+        case 'Strict':
+          encryptOption = true;
+          trustServerCertOption = false; // Forced false for Strict
+          break;
+        case 'Optional':
+        default:
+          encryptOption = false;
+          trustServerCertOption = config.trustServerCertificate ?? false;
+          break;
+      }
+
       const mssqlConfig: mssql.config = {
         server: config.host,
         port: config.port ?? 1433,
@@ -191,8 +214,8 @@ export class ConnectionManager implements IConnectionManager {
         connectionTimeout: CONNECTION_TIMEOUT_MS,
         requestTimeout: CONNECTION_TIMEOUT_MS,
         options: {
-          encrypt: config.encrypt ?? false,
-          trustServerCertificate: config.trustServerCertificate ?? false,
+          encrypt: encryptOption,
+          trustServerCertificate: trustServerCertOption,
         },
       };
 
@@ -200,21 +223,44 @@ export class ConnectionManager implements IConnectionManager {
     } else {
       // Windows Authentication using msnodesqlv8 driver
       const driver = detectOdbcDriver();
-      const connectionString = [
+      const encryptValue = normalizeEncryptValue(config.encrypt) ?? 'Optional';
+
+      // Map encrypt value to ODBC Encrypt keyword
+      let encryptKeyword: string;
+      switch (encryptValue) {
+        case 'Mandatory':
+          encryptKeyword = 'Encrypt=yes';
+          break;
+        case 'Strict':
+          encryptKeyword = 'Encrypt=strict';
+          break;
+        case 'Optional':
+        default:
+          encryptKeyword = 'Encrypt=no';
+          break;
+      }
+
+      const connectionStringParts = [
         `Driver={${driver}}`,
         `Server=${config.host}${config.port && config.port !== 1433 ? ',' + config.port : ''}`,
         `Database=${database}`,
         `Trusted_Connection=Yes`,
-      ].join(';');
+        encryptKeyword,
+      ];
+
+      // Add TrustServerCertificate for Optional/Mandatory (not for Strict)
+      if (encryptValue !== 'Strict') {
+        connectionStringParts.push(
+          `TrustServerCertificate=${config.trustServerCertificate ? 'yes' : 'no'}`
+        );
+      }
+
+      const connectionString = connectionStringParts.join(';');
 
       pool = new (getMssqlNative()).ConnectionPool({
         connectionString,
         connectionTimeout: CONNECTION_TIMEOUT_MS,
         requestTimeout: CONNECTION_TIMEOUT_MS,
-        options: {
-          encrypt: config.encrypt ?? false,
-          trustServerCertificate: config.trustServerCertificate ?? false,
-        },
       } as any);
     }
 

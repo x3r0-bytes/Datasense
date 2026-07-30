@@ -1036,8 +1036,9 @@ export class ObjectExplorerProvider implements vscode.TreeDataProvider<TreeNode>
     // Step 5: Encryption option (Requirement 3.2)
     const encryptPick = await vscode.window.showQuickPick(
       [
-        { label: 'Yes', value: true },
-        { label: 'No', value: false },
+        { label: 'Optional', value: 'Optional' as const },
+        { label: 'Mandatory', value: 'Mandatory' as const },
+        { label: 'Strict', value: 'Strict' as const },
       ],
       {
         placeHolder: 'Encrypt connection?',
