@@ -592,20 +592,42 @@ function createPool(config: ConnectionConfig): Promise<mssql.ConnectionPool> {
   } else {
     // Windows Authentication using msnodesqlv8 driver
     const driver = detectOdbcDriver();
-    const connectionString = [
+
+    // Map encrypt value to ODBC Encrypt keyword
+    let encryptKeyword: string;
+    switch (encryptValue) {
+      case 'Mandatory':
+        encryptKeyword = 'Encrypt=yes';
+        break;
+      case 'Strict':
+        encryptKeyword = 'Encrypt=strict';
+        break;
+      case 'Optional':
+      default:
+        encryptKeyword = 'Encrypt=no';
+        break;
+    }
+
+    const connectionStringParts = [
       `Driver={${driver}}`,
       `Server=${config.host}${config.port && config.port !== 1433 ? ',' + config.port : ''}`,
       `Database=${database}`,
       `Trusted_Connection=Yes`,
-    ].join(';');
+      encryptKeyword,
+    ];
+
+    // Add TrustServerCertificate for Optional/Mandatory (not for Strict)
+    if (encryptValue !== 'Strict') {
+      connectionStringParts.push(
+        `TrustServerCertificate=${trustCert ? 'yes' : 'no'}`
+      );
+    }
+
+    const connectionString = connectionStringParts.join(';');
 
     pool = new (getMssqlNative()).ConnectionPool({
       connectionString,
       connectionTimeout: 30000,
-      options: {
-        encrypt: encryptEnabled,
-        trustServerCertificate: trustCert,
-      },
     } as any);
   }
 
