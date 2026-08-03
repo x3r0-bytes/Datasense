@@ -448,21 +448,28 @@ export class ObjectExplorerConnectionManager {
 
       const serverPart = config.host + (config.port && config.port !== 1433 ? `,${config.port}` : '');
       const driver = detectOdbcDriver();
-      const connectionString = [
+      const connectionStringParts = [
         `Driver={${driver}}`,
         `Server=${serverPart}`,
         `Database=${database}`,
         `Trusted_Connection=Yes`,
         `Encrypt=${encryptKeyword}`,
-      ].join(';');
+      ];
+
+      // Add TrustServerCertificate for Optional/Mandatory (not for Strict)
+      // This MUST be in the connection string — the ODBC driver ignores the options object
+      if (encryptValue !== 'Strict') {
+        connectionStringParts.push(
+          `TrustServerCertificate=${config.trustServerCertificate ? 'yes' : 'no'}`
+        );
+      }
+
+      const connectionString = connectionStringParts.join(';');
 
       pool = new (getMssqlNative()).ConnectionPool({
         connectionString,
         connectionTimeout: CONNECTION_TIMEOUT_MS,
         requestTimeout: CONNECTION_TIMEOUT_MS,
-        options: {
-          trustServerCertificate: config.trustServerCertificate ?? false,
-        },
       } as any);
     }
 
